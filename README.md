@@ -14,6 +14,9 @@ Local-first macOS menu bar prototype for tracking LLM/API quota and usage.
   - Codex JSONL rate-limit parsing from `~/.codex/sessions`
   - OpenCode local database detection at `~/.local/share/opencode/opencode.db`
 - Compact dashboard view model and threshold logic.
+- Polished popover with a primary usage gauge, exact/estimated/unknown reliability labels, freshness text, and compact number formatting.
+- Footer controls for Refresh, Settings, and Quit.
+- macOS Keychain storage scaffold for an OpenRouter API key.
 
 ## Run
 
@@ -23,7 +26,7 @@ swift test
 swift run aifuelgauge
 ```
 
-The app runs as a menu bar accessory. Quit it from Activity Monitor for now; a proper Quit item is a near-term TODO.
+The app runs as a menu bar accessory. Use the popover footer to refresh, open settings, or quit.
 
 ## Product principle
 
@@ -35,9 +38,9 @@ Do not pretend estimates are exact. The app should always distinguish:
 
 ## Next useful build slices
 
-1. Add a proper popover footer with Refresh, Settings, and Quit.
-2. Store OpenRouter API key in Keychain and fetch real credits.
-3. Add FSEvents/polling refresh for Claude/Codex local logs.
-4. Add OpenAI usage/cost connector.
-5. Replace OpenCode placeholder with SQLite-backed usage parsing.
+1. Wire the saved OpenRouter key into live API polling and dashboard rows.
+2. Add FSEvents/polling refresh for Claude/Codex local logs.
+3. Add OpenAI usage/cost connector.
+4. Replace OpenCode placeholder with SQLite-backed usage parsing.
+5. Add threshold notifications for 75%, 90%, and exhausted states.
 6. Package as a `.app` bundle, then sign/notarize later.
