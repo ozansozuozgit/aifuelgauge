@@ -186,16 +186,61 @@ public struct LocalUsageCollector {
     }
 
     private func readJSONLLines(recursivelyUnder directory: URL) -> [String] {
-        guard let enumerator = fileManager.enumerator(at: directory, includingPropertiesForKeys: [.isRegularFileKey]) else {
+        let maxFiles = 120
+        let maxTotalBytes = 6_000_000
+        let maxBytesPerFile = 512_000
+
+        guard let enumerator = fileManager.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey]
+        ) else {
             return []
         }
+
+        let files = enumerator.compactMap { item -> LocalJSONLFile? in
+            guard let fileURL = item as? URL, fileURL.pathExtension == "jsonl" else { return nil }
+            guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey]),
+                  values.isRegularFile == true else { return nil }
+            return LocalJSONLFile(
+                url: fileURL,
+                modifiedAt: values.contentModificationDate ?? .distantPast,
+                byteSize: values.fileSize ?? 0
+            )
+        }
+        .sorted { lhs, rhs in lhs.modifiedAt > rhs.modifiedAt }
+        .prefix(maxFiles)
+
         var lines: [String] = []
-        for case let fileURL as URL in enumerator where fileURL.pathExtension == "jsonl" {
-            guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else { continue }
+        var bytesRead = 0
+        for file in files {
+            guard bytesRead < maxTotalBytes else { break }
+            let byteLimit = min(maxBytesPerFile, maxTotalBytes - bytesRead)
+            guard let data = readTail(of: file.url, byteLimit: byteLimit), !data.isEmpty else { continue }
+            bytesRead += data.count
+            guard var contents = String(data: data, encoding: .utf8) else { continue }
+            if file.byteSize > data.count, let newline = contents.firstIndex(of: "\n") {
+                contents.removeSubrange(contents.startIndex...newline)
+            }
             lines.append(contents)
         }
         return lines.flatMap { $0.split(separator: "\n", omittingEmptySubsequences: true).map(String.init) }
     }
+
+    private func readTail(of fileURL: URL, byteLimit: Int) -> Data? {
+        guard byteLimit > 0 else { return nil }
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return nil }
+        defer { try? handle.close() }
+        let fileSize = (try? handle.seekToEnd()) ?? 0
+        let readSize = min(UInt64(byteLimit), fileSize)
+        try? handle.seek(toOffset: fileSize - readSize)
+        return try? handle.readToEnd()
+    }
+}
+
+private struct LocalJSONLFile {
+    let url: URL
+    let modifiedAt: Date
+    let byteSize: Int
 }
 
 private struct ClaudeJSONLEvent: Decodable {

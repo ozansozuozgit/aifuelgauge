@@ -1,6 +1,6 @@
 import Foundation
 
-public struct DashboardGauge: Equatable {
+public struct DashboardGauge: Equatable, Sendable {
     public let title: String
     public let value: String
     public let subtitle: String
@@ -18,15 +18,16 @@ public struct DashboardGauge: Equatable {
     }
 }
 
-public struct DashboardRow: Equatable, Identifiable {
-    public var id: String { title }
+public struct DashboardRow: Equatable, Identifiable, Sendable {
+    public let id: String
     public let title: String
     public let value: String
     public let detail: String
     public let confidence: Confidence
     public let state: UsageState
 
-    public init(title: String, value: String, detail: String, confidence: Confidence, state: UsageState) {
+    public init(id: String, title: String, value: String, detail: String, confidence: Confidence, state: UsageState) {
+        self.id = id
         self.title = title
         self.value = value
         self.detail = detail
@@ -35,7 +36,7 @@ public struct DashboardRow: Equatable, Identifiable {
     }
 }
 
-public struct DashboardViewModel: Equatable {
+public struct DashboardViewModel: Equatable, Sendable {
     public let title: String
     public let subtitle: String
     public let statusLabel: String
@@ -58,6 +59,7 @@ public struct DashboardViewModel: Equatable {
             }
             .map { snapshot in
                 DashboardRow(
+                    id: snapshot.id,
                     title: snapshot.provider.displayName,
                     value: Self.value(for: snapshot),
                     detail: Self.detail(for: snapshot, now: now),

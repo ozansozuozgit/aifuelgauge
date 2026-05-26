@@ -39,7 +39,12 @@ public final class OpenRouterConnector {
     public func fetchCurrentKeyUsage(apiKey: String) async throws -> UsageSnapshot {
         let response: OpenRouterKeyEnvelope = try await get(path: "key", apiKey: apiKey)
         let key = response.data
-        let usedCredits = key.limit == nil ? key.usage_monthly : key.usage_monthly
+        let usedCredits: Double
+        if let limit = key.limit, let remaining = key.limit_remaining {
+            usedCredits = max(0, limit - remaining)
+        } else {
+            usedCredits = key.usage_monthly
+        }
         return UsageSnapshot(
             provider: .openRouter,
             source: .officialAPI,

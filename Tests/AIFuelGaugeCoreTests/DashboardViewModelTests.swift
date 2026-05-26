@@ -70,4 +70,33 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.rows.map(\.detail), ["Estimated · local · now", "Unknown · local · now"])
         XCTAssertNil(model.primaryGauge)
     }
+
+    func testRowsUseSnapshotIdentitySoOneProviderCanAppearMoreThanOnce() {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .openRouter,
+                source: .officialAPI,
+                label: "OpenRouter key",
+                used: .credits(10),
+                limit: .credits(100),
+                reset: nil,
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .openRouter,
+                source: .officialAPI,
+                label: "OpenRouter credits",
+                used: .credits(25),
+                limit: .credits(200),
+                reset: nil,
+                confidence: .exact,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        XCTAssertEqual(Set(model.rows.map(\.id)).count, 2)
+        XCTAssertEqual(model.rows.map(\.title), ["OpenRouter", "OpenRouter"])
+    }
 }

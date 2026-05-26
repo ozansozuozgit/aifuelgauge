@@ -14,7 +14,7 @@ final class OpenRouterConnectorTests: XCTestCase {
             "usage": 150,
             "usage_daily": 12,
             "usage_weekly": 40,
-            "usage_monthly": 76,
+            "usage_monthly": 99,
             "byok_usage": 0,
             "byok_usage_daily": 0,
             "byok_usage_weekly": 0,

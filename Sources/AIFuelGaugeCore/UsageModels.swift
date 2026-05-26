@@ -1,6 +1,6 @@
 import Foundation
 
-public enum Provider: String, Codable, Equatable, Hashable, CaseIterable {
+public enum Provider: String, Codable, Equatable, Hashable, CaseIterable, Sendable {
     case claudeCode
     case claude
     case codex
@@ -40,19 +40,19 @@ public enum Provider: String, Codable, Equatable, Hashable, CaseIterable {
     }
 }
 
-public enum UsageSource: String, Codable, Equatable, Hashable {
+public enum UsageSource: String, Codable, Equatable, Hashable, Sendable {
     case localLogs
     case officialAPI
     case experimentalWebSession
 }
 
-public enum Confidence: String, Codable, Equatable, Hashable {
+public enum Confidence: String, Codable, Equatable, Hashable, Sendable {
     case exact
     case estimated
     case unknown
 }
 
-public enum UsageState: String, Codable, Equatable, Hashable, Comparable {
+public enum UsageState: String, Codable, Equatable, Hashable, Comparable, Sendable {
     case unknown
     case safe
     case caution
@@ -74,7 +74,7 @@ public enum UsageState: String, Codable, Equatable, Hashable, Comparable {
     }
 }
 
-public enum UsageQuantity: Codable, Equatable, Hashable {
+public enum UsageQuantity: Codable, Equatable, Hashable, Sendable {
     case credits(Double)
     case usd(Double)
     case requests(Int)
@@ -100,7 +100,7 @@ public enum UsageQuantity: Codable, Equatable, Hashable {
     }
 }
 
-public enum ResetInfo: Codable, Equatable, Hashable {
+public enum ResetInfo: Codable, Equatable, Hashable, Sendable {
     case rollingWindow(secondsRemaining: TimeInterval)
     case fixed(Date)
 
@@ -121,7 +121,7 @@ public enum ResetInfo: Codable, Equatable, Hashable {
     }
 }
 
-public struct UsageSnapshot: Codable, Equatable, Hashable, Identifiable {
+public struct UsageSnapshot: Codable, Equatable, Hashable, Identifiable, Sendable {
     public var id: String { "\(provider.rawValue)-\(label)" }
     public let provider: Provider
     public let source: UsageSource
@@ -171,7 +171,7 @@ public struct UsageSnapshot: Codable, Equatable, Hashable, Identifiable {
     }
 }
 
-public struct UsageSummary: Equatable {
+public struct UsageSummary: Equatable, Sendable {
     public let snapshots: [UsageSnapshot]
 
     public init(snapshots: [UsageSnapshot]) {
@@ -207,7 +207,7 @@ public struct UsageSummary: Equatable {
     }
 }
 
-public struct ThresholdTracker: Equatable {
+public struct ThresholdTracker: Equatable, Sendable {
     public let thresholds: [Double]
 
     public init(thresholds: [Double]) {

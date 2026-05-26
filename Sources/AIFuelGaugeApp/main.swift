@@ -25,7 +25,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
             self?.statusItem?.button?.title = model.title
         }
 
-        popover.behavior = .transient
+        popover.behavior = .semitransient
         popover.contentSize = NSSize(width: 360, height: 300)
         popover.contentViewController = NSHostingController(
             rootView: DashboardView(
@@ -44,9 +44,10 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
-            controller.refresh()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
+            NSApp.activate(ignoringOtherApps: true)
+            controller.refresh()
         }
     }
 }
@@ -54,19 +55,61 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
 @MainActor
 private final class DashboardController: ObservableObject {
     @Published private(set) var model: DashboardViewModel
+    @Published private(set) var isRefreshing = false
+    @Published private(set) var refreshError: String?
+    private var refreshTask: Task<Void, Never>?
 
     init() {
-        self.model = Self.loadModel()
+        self.model = DashboardViewModel(summary: UsageSummary(snapshots: []))
+        refresh()
+    }
+
+    deinit {
+        refreshTask?.cancel()
     }
 
     func refresh() {
-        model = Self.loadModel()
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        refreshError = nil
+        refreshTask?.cancel()
+        refreshTask = Task { [weak self] in
+            let result = await Self.loadModelOffMain()
+            guard !Task.isCancelled else { return }
+            self?.model = result.model
+            self?.refreshError = result.error
+            self?.isRefreshing = false
+        }
     }
 
-    private static func loadModel() -> DashboardViewModel {
-        let localSnapshots = (try? LocalUsageCollector().collect()) ?? []
-        let summary = UsageSummary(snapshots: localSnapshots.isEmpty ? DemoData.summary().snapshots : localSnapshots)
-        return DashboardViewModel(summary: summary)
+    private static func loadModelOffMain() async -> (model: DashboardViewModel, error: String?) {
+        await Task.detached(priority: .userInitiated) {
+            var snapshots: [UsageSnapshot] = []
+            var warnings: [String] = []
+
+            do {
+                snapshots.append(contentsOf: try LocalUsageCollector().collect())
+            } catch {
+                warnings.append("Local refresh failed")
+            }
+
+            if let openRouterKey = KeychainStore.readOpenRouterKey(), !openRouterKey.isEmpty {
+                let connector = OpenRouterConnector()
+                do {
+                    snapshots.append(try await connector.fetchCurrentKeyUsage(apiKey: openRouterKey))
+                } catch {
+                    warnings.append("OpenRouter key check failed")
+                }
+                do {
+                    snapshots.append(try await connector.fetchAccountCredits(apiKey: openRouterKey))
+                } catch {
+                    warnings.append("OpenRouter credits failed")
+                }
+            }
+
+            let summary = UsageSummary(snapshots: snapshots)
+            return (DashboardViewModel(summary: summary), warnings.isEmpty ? nil : warnings.joined(separator: " · "))
+        }.value
     }
 }
 
@@ -91,15 +134,19 @@ private struct DashboardView: View {
             } else {
                 UnknownGaugeView()
             }
-            VStack(spacing: 0) {
-                ForEach(model.rows) { row in
-                    SourceRowView(row: row)
-                    if row.id != model.rows.last?.id {
-                        Divider().padding(.leading, 20).opacity(0.45)
+            if model.rows.isEmpty {
+                EmptySourcesView()
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(model.rows) { row in
+                        SourceRowView(row: row)
+                        if row.id != model.rows.last?.id {
+                            Divider().padding(.leading, 20).opacity(0.45)
+                        }
                     }
                 }
+                .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
-            .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             footer
         }
         .padding(16)
@@ -123,9 +170,9 @@ private struct DashboardView: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
-            Text(model.footerNote)
+            Text(controller.refreshError ?? (controller.isRefreshing ? "Refreshing local usage…" : model.footerNote))
                 .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(controller.refreshError == nil ? Color.secondary.opacity(0.60) : Color.red)
                 .lineLimit(1)
             Spacer(minLength: 8)
             FooterButton(title: "Refresh", action: actions.refresh)
@@ -186,6 +233,22 @@ private struct UnknownGaugeView: View {
         }
         .padding(12)
         .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+private struct EmptySourcesView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("No live sources yet")
+                .font(.system(size: 12, weight: .semibold))
+            Text("Open Settings to add OpenRouter, or use Claude Code/Codex locally and refresh.")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 

@@ -17,6 +17,8 @@ Local-first macOS menu bar prototype for tracking LLM/API quota and usage.
 - Polished popover with a primary usage gauge, exact/estimated/unknown reliability labels, freshness text, and compact number formatting.
 - Footer controls for Refresh, Settings, and Quit.
 - macOS Keychain storage scaffold for an OpenRouter API key.
+- Background refresh so opening the menu item does not block on large local logs.
+- Optional live OpenRouter polling when a key is saved in Settings.
 
 ## Run
 
@@ -28,6 +30,14 @@ swift run aifuelgauge
 
 The app runs as a menu bar accessory. Use the popover footer to refresh, open settings, or quit.
 
+For local iteration, prefer:
+
+```bash
+scripts/dev-run.sh
+```
+
+That kills any stale SwiftPM debug `aifuelgauge` process from this repo before launching the fresh build.
+
 ## Product principle
 
 Do not pretend estimates are exact. The app should always distinguish:
@@ -38,9 +48,9 @@ Do not pretend estimates are exact. The app should always distinguish:
 
 ## Next useful build slices
 
-1. Wire the saved OpenRouter key into live API polling and dashboard rows.
-2. Add FSEvents/polling refresh for Claude/Codex local logs.
-3. Add OpenAI usage/cost connector.
-4. Replace OpenCode placeholder with SQLite-backed usage parsing.
-5. Add threshold notifications for 75%, 90%, and exhausted states.
+1. Add FSEvents/polling refresh for Claude/Codex local logs.
+2. Add OpenAI usage/cost connector.
+3. Replace OpenCode placeholder with SQLite-backed usage parsing.
+4. Add threshold notifications for 75%, 90%, and exhausted states.
+5. Add launch-at-login and a proper `.app` bundle icon.
 6. Package as a `.app` bundle, then sign/notarize later.
