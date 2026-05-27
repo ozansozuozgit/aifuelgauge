@@ -47,6 +47,7 @@ use right now without running into a limit?
 - Copyable compact status snapshot plus a full diagnostics report for source
   status, history counts, and current refresh warnings without secrets.
 - Paste-friendly macOS Keychain storage for an OpenRouter API key.
+- OpenRouter key test action verifies exact usage access before saving.
 - Background refresh so opening the menu item does not block on large local logs.
 - Optional live OpenRouter polling when a key is saved in Settings.
 

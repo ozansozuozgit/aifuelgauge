@@ -85,6 +85,37 @@ final class OpenRouterConnectorTests: XCTestCase {
         XCTAssertEqual(snapshot.limit, .credits(100.5))
         XCTAssertEqual(snapshot.label, "OpenRouter credits")
     }
+
+    func testSetupCheckMessagesStaySecretSafe() {
+        let keySnapshot = UsageSnapshot(
+            provider: .openRouter,
+            source: .officialAPI,
+            label: "main",
+            used: .credits(76),
+            limit: .credits(100),
+            reset: nil,
+            confidence: .exact,
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+        let creditsSnapshot = UsageSnapshot(
+            provider: .openRouter,
+            source: .officialAPI,
+            label: "OpenRouter credits",
+            used: .credits(25),
+            limit: .credits(100),
+            reset: nil,
+            confidence: .exact,
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let success = OpenRouterSetupCheck.successMessage(keySnapshot: keySnapshot, creditsSnapshot: creditsSnapshot)
+        let failure = OpenRouterSetupCheck.failureMessage(error: ConnectorError.badStatus(401))
+
+        XCTAssertEqual(success, "OpenRouter key works. main is 76% used. Credits are 25% used.")
+        XCTAssertEqual(failure, "OpenRouter rejected the key or request (HTTP 401). Check the key and try again.")
+        XCTAssertFalse(success.localizedCaseInsensitiveContains("sk-"))
+        XCTAssertFalse(failure.localizedCaseInsensitiveContains("sk-"))
+    }
 }
 
 private final class MockHTTPTransport: HTTPTransport {

@@ -1129,6 +1129,7 @@ private final class SettingsWindowController {
 private struct SettingsView: View {
     @State private var openRouterKey: String
     @State private var message: String = "Stored in macOS Keychain. Not synced."
+    @State private var isTestingOpenRouterKey = false
     @State private var historyMessage: String = "History stores only lane IDs, timestamps, and percentages."
     @State private var detectedCursorPlan: String
     @State private var detectedCursorStatus: String
@@ -1240,6 +1241,11 @@ private struct SettingsView: View {
                         pasteOpenRouterKey()
                     }
                     .help("Paste from clipboard")
+                    Button(isTestingOpenRouterKey ? "Testing" : "Test") {
+                        testOpenRouterKey()
+                    }
+                    .disabled(isTestingOpenRouterKey)
+                    .help("Test without saving")
                 }
                 Text(message)
                     .font(.system(size: 10, weight: .medium))
@@ -1306,6 +1312,31 @@ private struct SettingsView: View {
         }
         openRouterKey = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
         message = "Pasted from clipboard. Save to store it in Keychain."
+    }
+
+    private func testOpenRouterKey() {
+        let key = openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else {
+            message = OpenRouterSetupCheck.failureMessage(error: ConnectorError.emptyAPIKey)
+            return
+        }
+        isTestingOpenRouterKey = true
+        message = "Testing OpenRouter key..."
+        Task {
+            let result: String
+            do {
+                let connector = OpenRouterConnector()
+                let keySnapshot = try await connector.fetchCurrentKeyUsage(apiKey: key)
+                let creditsSnapshot = try? await connector.fetchAccountCredits(apiKey: key)
+                result = OpenRouterSetupCheck.successMessage(keySnapshot: keySnapshot, creditsSnapshot: creditsSnapshot)
+            } catch {
+                result = OpenRouterSetupCheck.failureMessage(error: error)
+            }
+            await MainActor.run {
+                message = result
+                isTestingOpenRouterKey = false
+            }
+        }
     }
 
     private func revealHistory() {

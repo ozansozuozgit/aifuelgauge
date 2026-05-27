@@ -90,6 +90,34 @@ public final class OpenRouterConnector {
     }
 }
 
+public enum OpenRouterSetupCheck {
+    public static func successMessage(keySnapshot: UsageSnapshot, creditsSnapshot: UsageSnapshot?) -> String {
+        var parts = ["OpenRouter key works."]
+        if let percent = keySnapshot.usagePercent {
+            parts.append("\(keySnapshot.label) is \(Int((percent * 100).rounded()))% used.")
+        } else {
+            parts.append("\(keySnapshot.label) has no hard key limit.")
+        }
+        if let creditsSnapshot, let percent = creditsSnapshot.usagePercent {
+            parts.append("Credits are \(Int((percent * 100).rounded()))% used.")
+        } else if creditsSnapshot != nil {
+            parts.append("Credit balance is readable.")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    public static func failureMessage(error: Error) -> String {
+        switch error {
+        case ConnectorError.emptyAPIKey:
+            return "Paste an OpenRouter key before testing."
+        case ConnectorError.badStatus(let status):
+            return "OpenRouter rejected the key or request (HTTP \(status)). Check the key and try again."
+        default:
+            return "OpenRouter test failed. Check the key, network, or provider status."
+        }
+    }
+}
+
 private struct OpenRouterKeyEnvelope: Decodable {
     let data: OpenRouterKeyData
 }
