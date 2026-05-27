@@ -522,6 +522,28 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertFalse(snapshot.localizedCaseInsensitiveContains("sk-"))
     }
 
+    func testRowsShowMaskedAccountIdentityWithoutLeakingEmail() {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "cursor-abc123", displayName: "Cursor", plan: "Pro", identityHint: "u***r@example.com"),
+                label: "Included total",
+                used: .percent(50),
+                limit: .percent(100),
+                reset: nil,
+                confidence: .exact,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        XCTAssertEqual(model.rows.first?.detail, "50% left · Exact · account · acct u***r@example.com · now")
+        let status = DashboardStatusSnapshot.make(model: model, generatedAt: now)
+        XCTAssertTrue(status.contains("acct u***r@example.com"))
+        XCTAssertFalse(status.contains("user@example.com"))
+    }
+
     func testViewModelUsesConfiguredMenuBarDisplayMode() {
         let now = Date(timeIntervalSince1970: 100)
         let summary = UsageSummary(snapshots: [

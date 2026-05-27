@@ -969,7 +969,7 @@ public struct DashboardViewModel: Equatable, Sendable {
 
     private static func detail(for snapshot: UsageSnapshot, now: Date) -> String {
         if snapshot.isSubscriptionOnly {
-            return "Detected locally · plan label · usage not connected"
+            return ["Detected locally", "plan label", accountHint(for: snapshot), "usage not connected"].compactMap { $0 }.joined(separator: " · ")
         }
         if snapshot.provider == .codex, snapshot.source == .localLogs, snapshot.confidence == .unknown {
             return "Expired window · local · last event \(relativeTime(from: snapshot.updatedAt, now: now))"
@@ -987,8 +987,18 @@ public struct DashboardViewModel: Equatable, Sendable {
         }
         parts.append(confidenceLabel(snapshot.confidence))
         parts.append(sourceLabel(snapshot.source))
+        if let accountHint = accountHint(for: snapshot) {
+            parts.append(accountHint)
+        }
         parts.append(relativeTime(from: snapshot.updatedAt, now: now))
         return parts.joined(separator: " · ")
+    }
+
+    private static func accountHint(for snapshot: UsageSnapshot) -> String? {
+        guard let identityHint = snapshot.account?.identityHint?.trimmingCharacters(in: .whitespacesAndNewlines), !identityHint.isEmpty else {
+            return nil
+        }
+        return "acct \(identityHint)"
     }
 
     private static func value(for snapshot: UsageSnapshot) -> String {

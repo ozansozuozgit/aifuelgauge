@@ -53,7 +53,12 @@ public final class CursorUsageConnector {
             throw CursorUsageConnectorError.usageRequestFailed
         }
         let plan = planPreferences.cursorPlanOverride ?? state.displayPlan
-        return try CursorUsageResponseParser(now: now).parse(data: data, plan: plan)
+        return try CursorUsageResponseParser(now: now).parse(
+            data: data,
+            plan: plan,
+            accountIdentifier: state.stableAccountIdentifier,
+            identityHint: state.maskedEmail
+        )
     }
 }
 
@@ -64,7 +69,7 @@ public struct CursorUsageResponseParser: Sendable {
         self.now = now
     }
 
-    public func parse(data: Data, plan: String?) throws -> [UsageSnapshot] {
+    public func parse(data: Data, plan: String?, accountIdentifier: String = "cursor-account", identityHint: String? = nil) throws -> [UsageSnapshot] {
         let response = try JSONDecoder().decode(CursorUsageResponse.self, from: data)
         guard let planUsage = response.planUsage else {
             throw CursorUsageConnectorError.invalidUsageResponse
@@ -72,7 +77,12 @@ public struct CursorUsageResponseParser: Sendable {
 
         let generatedAt = now()
         let reset = response.billingCycleEnd.date.map(ResetInfo.fixed)
-        let account = UsageAccount(identifier: "cursor-account", displayName: "Cursor", plan: normalizedPlan(plan))
+        let account = UsageAccount(
+            identifier: accountIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "cursor-account" : accountIdentifier,
+            displayName: "Cursor",
+            plan: normalizedPlan(plan),
+            identityHint: identityHint?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        )
 
         var snapshots: [UsageSnapshot] = []
         snapshots.append(contentsOf: snapshot(
@@ -127,6 +137,12 @@ public struct CursorUsageResponseParser: Sendable {
     private func normalizedPlan(_ plan: String?) -> String? {
         let trimmed = plan?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 

@@ -270,7 +270,12 @@ public struct LocalUsageCollector {
                 snapshots.append(UsageSnapshot(
                     provider: .cursor,
                     source: .localLogs,
-                    account: UsageAccount(identifier: "cursor-local", displayName: "Cursor", plan: plan),
+                    account: UsageAccount(
+                        identifier: "\(cursorState?.stableAccountIdentifier ?? "cursor-account")-local",
+                        displayName: "Cursor",
+                        plan: plan,
+                        identityHint: cursorState?.maskedEmail
+                    ),
                     label: status.map { "Subscription \($0)" } ?? "Subscription",
                     used: .requests(0),
                     limit: nil,
@@ -401,6 +406,37 @@ public struct CursorAccountState: Equatable, Sendable {
         default:
             return subscriptionStatus.replacingOccurrences(of: "_", with: " ")
         }
+    }
+
+    public var maskedEmail: String? {
+        Self.maskEmail(email)
+    }
+
+    public var stableAccountIdentifier: String {
+        guard let normalized = email?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !normalized.isEmpty else {
+            return "cursor-account"
+        }
+        return "cursor-\(Self.stableHash(normalized))"
+    }
+
+    private static func maskEmail(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let atIndex = trimmed.firstIndex(of: "@"), atIndex > trimmed.startIndex else { return nil }
+        let local = String(trimmed[..<atIndex])
+        let domain = String(trimmed[trimmed.index(after: atIndex)...])
+        guard !domain.isEmpty else { return nil }
+        let first = local.first.map(String.init) ?? ""
+        let suffix = local.count > 2 ? String(local.suffix(1)) : ""
+        return "\(first)***\(suffix)@\(domain)"
+    }
+
+    private static func stableHash(_ value: String) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return String(hash, radix: 16)
     }
 }
 

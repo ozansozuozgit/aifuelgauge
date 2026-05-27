@@ -22,7 +22,12 @@ final class CursorUsageConnectorTests: XCTestCase {
             """.utf8
         )
 
-        let snapshots = try CursorUsageResponseParser(now: { Date(timeIntervalSince1970: 200) }).parse(data: data, plan: "Pro")
+        let snapshots = try CursorUsageResponseParser(now: { Date(timeIntervalSince1970: 200) }).parse(
+            data: data,
+            plan: "Pro",
+            accountIdentifier: "cursor-abc123",
+            identityHint: "u***r@example.com"
+        )
 
         XCTAssertEqual(snapshots.map(\.provider), [.cursor, .cursor, .cursor])
         XCTAssertEqual(snapshots.map(\.source), [.experimentalWebSession, .experimentalWebSession, .experimentalWebSession])
@@ -45,6 +50,8 @@ final class CursorUsageConnectorTests: XCTestCase {
             .fixed(Date(timeIntervalSince1970: 1_780_785_201))
         ])
         XCTAssertEqual(snapshots.first?.account?.plan, "Pro")
+        XCTAssertEqual(snapshots.first?.account?.identifier, "cursor-abc123")
+        XCTAssertEqual(snapshots.first?.account?.identityHint, "u***r@example.com")
     }
 
     func testRejectsCursorUsageWithoutAnyComparableLane() {

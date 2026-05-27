@@ -32,6 +32,8 @@ use right now without running into a limit?
   needed rows, and stale sources at a glance.
 - Actionable setup guidance explains missing or fallback sources directly in
   the popover.
+- Masked account hints distinguish connected Cursor accounts without exposing
+  full emails or tokens.
 - Local 7-day persisted sparklines for comparable quota rows so usage drift
   remains visible across app restarts without opening provider dashboards.
 - Trend captions under sparklines show 7-day peak and direction at a glance.

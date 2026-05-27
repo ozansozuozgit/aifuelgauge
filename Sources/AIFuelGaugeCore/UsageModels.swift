@@ -56,11 +56,13 @@ public struct UsageAccount: Codable, Equatable, Hashable, Sendable {
     public let identifier: String
     public let displayName: String
     public let plan: String?
+    public let identityHint: String?
 
-    public init(identifier: String, displayName: String, plan: String? = nil) {
+    public init(identifier: String, displayName: String, plan: String? = nil, identityHint: String? = nil) {
         self.identifier = identifier
         self.displayName = displayName
         self.plan = plan
+        self.identityHint = identityHint
     }
 
     public var displayTitle: String {

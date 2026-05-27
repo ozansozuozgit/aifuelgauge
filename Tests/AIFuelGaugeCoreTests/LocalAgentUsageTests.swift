@@ -56,6 +56,10 @@ final class LocalAgentUsageTests: XCTestCase {
         XCTAssertEqual(state.displayPlan, "Pro")
         XCTAssertEqual(state.displayStatus, "active")
         XCTAssertEqual(state.email, "user@example.com")
+        XCTAssertEqual(state.maskedEmail, "u***r@example.com")
+        XCTAssertTrue(state.stableAccountIdentifier.hasPrefix("cursor-"))
+        XCTAssertFalse(state.stableAccountIdentifier.contains("user"))
+        XCTAssertFalse(state.stableAccountIdentifier.contains("example"))
         XCTAssertEqual(state.accessToken, "local-access-token")
     }
 
