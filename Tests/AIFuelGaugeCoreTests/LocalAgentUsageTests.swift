@@ -32,6 +32,7 @@ final class LocalAgentUsageTests: XCTestCase {
         XCTAssertEqual(snapshot.used, .tokens(input: 110, output: 25, cacheRead: 307, cacheWrite: 42))
         XCTAssertNil(snapshot.limit)
         XCTAssertEqual(snapshot.confidence, .estimated)
+        XCTAssertEqual(snapshot.updatedAt, Date(timeIntervalSince1970: 1_779_797_100))
     }
 
     func testParsesLatestCodexRateLimitTokenCount() throws {
@@ -65,5 +66,24 @@ final class LocalAgentUsageTests: XCTestCase {
         XCTAssertEqual(snapshots.map(\.label), ["5h", "Weekly"])
         XCTAssertEqual(snapshots.map(\.used), [.percent(17), .percent(42)])
         XCTAssertEqual(snapshots.map(\.reset), [.rollingWindow(secondsRemaining: 600), .rollingWindow(secondsRemaining: 3000)])
+    }
+
+    func testCodexUsesNewestTimestampInsteadOfLastLineWhenFilesAreReadNewestFirst() throws {
+        let lines = [
+            """
+            {"timestamp":"2026-05-26T23:45:22.288Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":17.0,"window_minutes":300,"resets_at":1779853890},"secondary":{"used_percent":42.0,"window_minutes":10080,"resets_at":1780174797}}}}
+            """,
+            """
+            {"timestamp":"2026-05-26T21:54:02.235Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":48.0,"window_minutes":300,"resets_at":1779835472},"secondary":{"used_percent":37.0,"window_minutes":10080,"resets_at":1780174797}}}}
+            """
+        ]
+
+        let snapshots = try CodexJSONLUsageParser(now: { Date(timeIntervalSince1970: 1779850000) }).parseRateLimits(lines: lines)
+
+        XCTAssertEqual(snapshots.map(\.used), [.percent(17), .percent(42)])
+        XCTAssertEqual(snapshots.map(\.updatedAt), [
+            Date(timeIntervalSince1970: 1_779_839_122.288),
+            Date(timeIntervalSince1970: 1_779_839_122.288)
+        ])
     }
 }

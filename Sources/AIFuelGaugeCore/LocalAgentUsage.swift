@@ -74,6 +74,7 @@ public struct ClaudeJSONLUsageParser {
         var cacheRead = 0
         var cacheWrite = 0
         var foundUsage = false
+        var latestTimestamp: Date?
 
         for line in lines where !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             guard let data = line.data(using: .utf8),
@@ -82,6 +83,9 @@ public struct ClaudeJSONLUsageParser {
                 continue
             }
             foundUsage = true
+            if let timestamp = LocalTimestampParser.date(from: event.timestamp), latestTimestamp.map({ timestamp > $0 }) ?? true {
+                latestTimestamp = timestamp
+            }
             input += usage.input_tokens ?? 0
             output += usage.output_tokens ?? 0
             cacheRead += usage.cache_read_input_tokens ?? 0
@@ -97,7 +101,7 @@ public struct ClaudeJSONLUsageParser {
             limit: nil,
             reset: nil,
             confidence: .estimated,
-            updatedAt: now()
+            updatedAt: latestTimestamp ?? now()
         )
     }
 }
@@ -118,8 +122,8 @@ public struct CodexJSONLUsageParser {
 
     public func parseRateLimits(lines: [String], primaryFallbackLabel: String = "Codex") throws -> [UsageSnapshot] {
         let decoder = JSONDecoder()
-        var latestPrimary: CodexRateLimit?
-        var latestSecondary: CodexRateLimit?
+        var latestPrimary: TimedCodexRateLimit?
+        var latestSecondary: TimedCodexRateLimit?
 
         for line in lines where !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             guard let data = line.data(using: .utf8),
@@ -127,27 +131,34 @@ public struct CodexJSONLUsageParser {
                   event.payload.type == "token_count" else {
                 continue
             }
+            let eventTimestamp = LocalTimestampParser.date(from: event.timestamp) ?? now()
             if let primary = event.payload.rate_limits?.primary {
-                latestPrimary = primary
+                let timed = TimedCodexRateLimit(rateLimit: primary, timestamp: eventTimestamp)
+                if latestPrimary.map({ eventTimestamp >= $0.timestamp }) ?? true {
+                    latestPrimary = timed
+                }
             }
             if let secondary = event.payload.rate_limits?.secondary {
-                latestSecondary = secondary
+                let timed = TimedCodexRateLimit(rateLimit: secondary, timestamp: eventTimestamp)
+                if latestSecondary.map({ eventTimestamp >= $0.timestamp }) ?? true {
+                    latestSecondary = timed
+                }
             }
         }
 
         let generatedAt = now()
         var snapshots: [UsageSnapshot] = []
         if let latestPrimary {
-            snapshots.append(snapshot(for: latestPrimary, label: codexWindowLabel(for: latestPrimary) ?? primaryFallbackLabel, now: generatedAt))
+            snapshots.append(snapshot(for: latestPrimary.rateLimit, label: codexWindowLabel(for: latestPrimary.rateLimit) ?? primaryFallbackLabel, now: generatedAt, updatedAt: latestPrimary.timestamp))
         }
         if let latestSecondary {
-            snapshots.append(snapshot(for: latestSecondary, label: codexWindowLabel(for: latestSecondary) ?? "Weekly", now: generatedAt))
+            snapshots.append(snapshot(for: latestSecondary.rateLimit, label: codexWindowLabel(for: latestSecondary.rateLimit) ?? "Weekly", now: generatedAt, updatedAt: latestSecondary.timestamp))
         }
         guard !snapshots.isEmpty else { throw LocalUsageParseError.noUsageFound }
         return snapshots
     }
 
-    private func snapshot(for rateLimit: CodexRateLimit, label: String, now generatedAt: Date) -> UsageSnapshot {
+    private func snapshot(for rateLimit: CodexRateLimit, label: String, now generatedAt: Date, updatedAt: Date) -> UsageSnapshot {
         let secondsRemaining = max(0, TimeInterval(rateLimit.resets_at) - generatedAt.timeIntervalSince1970)
         return UsageSnapshot(
             provider: .codex,
@@ -157,7 +168,7 @@ public struct CodexJSONLUsageParser {
             limit: .percent(100),
             reset: .rollingWindow(secondsRemaining: secondsRemaining),
             confidence: .exact,
-            updatedAt: generatedAt
+            updatedAt: updatedAt
         )
     }
 
@@ -275,6 +286,7 @@ private struct LocalJSONLFile {
 }
 
 private struct ClaudeJSONLEvent: Decodable {
+    let timestamp: String?
     let message: ClaudeMessage?
 }
 
@@ -290,6 +302,7 @@ private struct ClaudeUsage: Decodable {
 }
 
 private struct CodexJSONLEvent: Decodable {
+    let timestamp: String?
     let payload: CodexPayload
 }
 
@@ -307,4 +320,22 @@ private struct CodexRateLimit: Decodable {
     let used_percent: Double
     let window_minutes: Int?
     let resets_at: Double
+}
+
+private struct TimedCodexRateLimit {
+    let rateLimit: CodexRateLimit
+    let timestamp: Date
+}
+
+private enum LocalTimestampParser {
+    static func date(from value: String?) -> Date? {
+        guard let value else { return nil }
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractionalFormatter.date(from: value) { return date }
+
+        let wholeSecondFormatter = ISO8601DateFormatter()
+        wholeSecondFormatter.formatOptions = [.withInternetDateTime]
+        return wholeSecondFormatter.date(from: value)
+    }
 }
