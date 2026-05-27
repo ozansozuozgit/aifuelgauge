@@ -12,7 +12,7 @@ macos_dir="$contents/MacOS"
 resources_dir="$contents/Resources"
 
 cd "$repo_root"
-swift build -c "$configuration" --product aifuelgauge
+swift build -c "$configuration" --product aifuelgauge >&2
 
 rm -rf "$app_path"
 mkdir -p "$macos_dir" "$resources_dir"

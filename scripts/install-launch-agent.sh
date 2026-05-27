@@ -2,12 +2,17 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-app_source="$($repo_root/scripts/package-app.sh)"
+app_source="$("$repo_root/scripts/package-app.sh" | tail -n 1)"
 install_dir="$HOME/Applications"
 app_name="AI Fuel Gauge.app"
 app_dest="$install_dir/$app_name"
 label="com.ozansozuoz.aifuelgauge"
 plist="$HOME/Library/LaunchAgents/$label.plist"
+
+if [[ ! -d "$app_source" ]]; then
+  echo "Packaged app not found at: $app_source" >&2
+  exit 1
+fi
 
 mkdir -p "$install_dir" "$HOME/Library/LaunchAgents"
 rm -rf "$app_dest"
