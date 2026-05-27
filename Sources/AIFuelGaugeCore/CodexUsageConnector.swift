@@ -178,6 +178,7 @@ public struct CodexUsageResponseParser: Sendable {
         return UsageSnapshot(
             provider: .codex,
             source: .experimentalWebSession,
+            account: UsageAccount(identifier: "codex-account", displayName: "Codex", plan: Self.displayPlan(for: plan)),
             label: label,
             used: .percent(window.used_percent),
             limit: .percent(100),
@@ -185,6 +186,31 @@ public struct CodexUsageResponseParser: Sendable {
             confidence: .exact,
             updatedAt: generatedAt
         )
+    }
+
+    private static func displayPlan(for rawPlan: String?) -> String? {
+        guard let rawPlan else { return nil }
+        let normalized = rawPlan.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return nil }
+        switch normalized {
+        case "pro", "prolite", "plus":
+            return "Pro"
+        case "free":
+            return "Free"
+        case "team", "teams":
+            return "Team"
+        case "business":
+            return "Business"
+        case "enterprise":
+            return "Enterprise"
+        default:
+            return rawPlan
+                .replacingOccurrences(of: "_", with: " ")
+                .replacingOccurrences(of: "-", with: " ")
+                .split(separator: " ")
+                .map { word in word.prefix(1).uppercased() + word.dropFirst().lowercased() }
+                .joined(separator: " ")
+        }
     }
 }
 

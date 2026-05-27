@@ -2,6 +2,7 @@ import Foundation
 
 public enum LocalAgentSourceKind: String, Codable, Equatable, Hashable {
     case jsonlDirectory
+    case directory
     case sqliteDatabase
 }
 
@@ -42,11 +43,16 @@ public struct LocalAgentDetector {
                 provider: .openCode,
                 kind: .sqliteDatabase,
                 url: homeDirectory.appendingPathComponent(".local/share/opencode/opencode.db")
+            ),
+            LocalAgentSource(
+                provider: .cursor,
+                kind: .directory,
+                url: homeDirectory.appendingPathComponent("Library/Application Support/Cursor")
             )
         ]
         return candidates.filter { source in
             switch source.kind {
-            case .jsonlDirectory:
+            case .jsonlDirectory, .directory:
                 var isDirectory: ObjCBool = false
                 return fileManager.fileExists(atPath: source.url.path, isDirectory: &isDirectory) && isDirectory.boolValue
             case .sqliteDatabase:
@@ -67,7 +73,7 @@ public struct ClaudeJSONLUsageParser {
         self.now = now
     }
 
-    public func parse(lines: [String], label: String = "Claude Code") throws -> UsageSnapshot {
+    public func parse(lines: [String], label: String = "Claude Code", account: UsageAccount? = nil) throws -> UsageSnapshot {
         let decoder = JSONDecoder()
         var input = 0
         var output = 0
@@ -96,6 +102,7 @@ public struct ClaudeJSONLUsageParser {
         return UsageSnapshot(
             provider: .claudeCode,
             source: .localLogs,
+            account: account,
             label: label,
             used: .tokens(input: input, output: output, cacheRead: cacheRead, cacheWrite: cacheWrite),
             limit: nil,
@@ -214,7 +221,11 @@ public struct LocalUsageCollector {
         for source in sources {
             switch source.provider {
             case .claudeCode:
-                if let snapshot = try? ClaudeJSONLUsageParser(now: now).parse(lines: readJSONLLines(recursivelyUnder: source.url), label: "Claude Code") {
+                if let snapshot = try? ClaudeJSONLUsageParser(now: now).parse(
+                    lines: readJSONLLines(recursivelyUnder: source.url),
+                    label: "Claude Code",
+                    account: UsageAccount(identifier: "claude-code-local", displayName: "Claude Code", plan: "Free")
+                ) {
                     snapshots.append(snapshot)
                 }
             case .codex:
@@ -227,6 +238,18 @@ public struct LocalUsageCollector {
                     source: .localLogs,
                     label: "OpenCode",
                     used: .tokens(input: 0, output: 0, cacheRead: 0, cacheWrite: 0),
+                    limit: nil,
+                    reset: nil,
+                    confidence: .unknown,
+                    updatedAt: now()
+                ))
+            case .cursor:
+                snapshots.append(UsageSnapshot(
+                    provider: .cursor,
+                    source: .localLogs,
+                    account: UsageAccount(identifier: "cursor-local", displayName: "Cursor", plan: "Pro ($20)"),
+                    label: "Subscription",
+                    used: .requests(0),
                     limit: nil,
                     reset: nil,
                     confidence: .unknown,

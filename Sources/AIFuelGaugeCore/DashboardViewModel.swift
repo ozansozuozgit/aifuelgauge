@@ -124,7 +124,11 @@ public struct DashboardViewModel: Equatable, Sendable {
             return "Add one exact source, then the menu bar can warn before you stall."
         }
         guard let snapshot = summary.primarySnapshot, let percent = snapshot.usagePercent else {
+            let subscriptionCount = summary.snapshots.filter(\.isSubscriptionOnly).count
             let localCount = summary.snapshots.filter { $0.source == .localLogs }.count
+            if subscriptionCount > 0 {
+                return "\(subscriptionCount) subscription label\(subscriptionCount == 1 ? "" : "s") found. Usage limits still need exact connectors."
+            }
             return "\(localCount) local source\(localCount == 1 ? "" : "s") found. Exact limits still need metadata."
         }
         if let codexInsight = codexInsight(for: summary) {
@@ -181,6 +185,21 @@ public struct DashboardViewModel: Equatable, Sendable {
     private static func rowTitle(for snapshot: UsageSnapshot) -> String {
         let label = snapshot.label.trimmingCharacters(in: .whitespacesAndNewlines)
         if let account = snapshot.account {
+            let accountName = account.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let plan = account.plan?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let accountMatchesProvider = accountName.caseInsensitiveCompare(snapshot.provider.displayName) == .orderedSame
+            let planTitle = plan.flatMap { $0.isEmpty ? nil : $0 }
+
+            if accountMatchesProvider, let planTitle {
+                if snapshot.isSubscriptionOnly {
+                    return "\(snapshot.provider.displayName) · Subscription"
+                }
+                if label.isEmpty || label == snapshot.provider.displayName || label == accountName {
+                    return "\(snapshot.provider.displayName) · \(planTitle)"
+                }
+                return "\(snapshot.provider.displayName) · \(planTitle) · \(label)"
+            }
+
             let accountTitle = account.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
             if label.isEmpty || label == snapshot.provider.displayName || label == accountTitle {
                 return "\(snapshot.provider.displayName) · \(accountTitle)"
@@ -246,6 +265,16 @@ public struct DashboardViewModel: Equatable, Sendable {
     }
 
     private static func explanation(for snapshot: UsageSnapshot) -> String {
+        if snapshot.isSubscriptionOnly {
+            switch snapshot.provider {
+            case .cursor:
+                return "Cursor is detected locally. Plan is labeled from your subscription; usage limits are not connected yet."
+            case .claudeCode, .claude:
+                return "Plan label is shown separately from usage because Claude Code local logs do not expose a hard subscription quota."
+            default:
+                return "Subscription label only. This row confirms the plan, not a comparable usage limit."
+            }
+        }
         switch (snapshot.provider, snapshot.source, snapshot.confidence) {
         case (.openRouter, .officialAPI, .exact):
             return "Exact from official OpenRouter API. Shows comparable credits with remaining capacity and refresh freshness."
@@ -272,6 +301,9 @@ public struct DashboardViewModel: Equatable, Sendable {
     }
 
     private static func detail(for snapshot: UsageSnapshot, now: Date) -> String {
+        if snapshot.isSubscriptionOnly {
+            return "Detected locally · plan label · usage not connected"
+        }
         if snapshot.provider == .codex, snapshot.source == .localLogs, snapshot.confidence == .unknown {
             return "Expired window · local · last event \(relativeTime(from: snapshot.updatedAt, now: now))"
         }
@@ -293,6 +325,10 @@ public struct DashboardViewModel: Equatable, Sendable {
     }
 
     private static func value(for snapshot: UsageSnapshot) -> String {
+        if snapshot.isSubscriptionOnly, let plan = snapshot.account?.plan?.trimmingCharacters(in: .whitespacesAndNewlines), !plan.isEmpty {
+            return plan
+        }
+
         if let usagePercent = snapshot.usagePercent {
             if prefersRemainingDisplay(snapshot) {
                 return "\(displayPercent(for: snapshot))% left"

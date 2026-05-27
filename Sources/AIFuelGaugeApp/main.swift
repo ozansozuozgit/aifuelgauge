@@ -29,7 +29,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 460, height: 500)
+        popover.contentSize = NSSize(width: 460, height: 530)
         popover.contentViewController = NSHostingController(
             rootView: DashboardView(
                 controller: controller,
@@ -218,13 +218,13 @@ private struct DashboardView: View {
                         }
                     }
                 }
-                .frame(maxHeight: 230)
+                .frame(maxHeight: 250)
                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             footer
         }
         .padding(16)
-        .frame(width: 460, height: 500)
+        .frame(width: 460, height: 530)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -293,7 +293,7 @@ private struct InsightStrip: View {
         case .safe: "bolt.fill"
         case .caution: "speedometer"
         case .critical, .exhausted: "exclamationmark.triangle.fill"
-        case .unknown: "sparkles"
+        case .unknown: "questionmark.circle.fill"
         }
     }
 }
@@ -502,7 +502,7 @@ private final class SettingsWindowController {
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 230),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 350),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -535,6 +535,16 @@ private struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Plan labels")
+                    .font(.system(size: 11, weight: .semibold))
+                PlanLabelRow(provider: "Codex", plan: "Pro", detail: "Exact account usage when ~/.codex/auth.json is valid.")
+                PlanLabelRow(provider: "Claude Code", plan: "Free", detail: "Local token estimate only; no hard quota exposed.")
+                PlanLabelRow(provider: "Cursor", plan: "Pro ($20)", detail: "Detected locally; usage connector not wired yet.")
+            }
+            .padding(10)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
             VStack(alignment: .leading, spacing: 6) {
                 Text("OpenRouter API key")
                     .font(.system(size: 11, weight: .semibold))
@@ -566,7 +576,31 @@ private struct SettingsView: View {
             }
         }
         .padding(18)
-        .frame(width: 440, height: 230)
+        .frame(width: 460, height: 350)
+    }
+}
+
+private struct PlanLabelRow: View {
+    let provider: String
+    let plan: String
+    let detail: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(provider)
+                .font(.system(size: 10, weight: .semibold))
+                .frame(width: 78, alignment: .leading)
+            Text(plan)
+                .font(.system(size: 10, weight: .semibold))
+                .monospacedDigit()
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(.quaternary, in: Capsule())
+            Text(detail)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
     }
 }
 

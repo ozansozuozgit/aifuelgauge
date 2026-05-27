@@ -197,6 +197,10 @@ public struct UsageSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
         if usagePercent >= 0.75 { return .caution }
         return .safe
     }
+
+    public var isSubscriptionOnly: Bool {
+        limit == nil && label.localizedCaseInsensitiveContains("subscription")
+    }
 }
 
 public struct UsageSummary: Equatable, Sendable {
@@ -352,9 +356,12 @@ public struct UsageAlertPlanner: Equatable, Sendable {
         let thresholdPercent = Int((threshold * 100).rounded())
         let remaining = max(0, Int(((1 - currentPercent) * 100).rounded()))
         let reset = snapshot.reset?.compactTitle.map { " · resets in \($0)" } ?? ""
+        let title = snapshot.provider == .codex
+            ? "\(displayTitle(for: snapshot)) has \(remaining)% left"
+            : "\(displayTitle(for: snapshot)) is at \(percentUsed)%"
         return UsageAlertEvent(
             identifier: "\(snapshot.id)-\(thresholdPercent)",
-            title: "\(displayTitle(for: snapshot)) is at \(percentUsed)%",
+            title: title,
             body: "\(remaining)% left\(reset)",
             thresholdPercent: threshold,
             provider: snapshot.provider,
@@ -364,6 +371,20 @@ public struct UsageAlertPlanner: Equatable, Sendable {
 
     private func displayTitle(for snapshot: UsageSnapshot) -> String {
         let label = snapshot.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let account = snapshot.account {
+            let accountName = account.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let plan = account.plan?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let accountMatchesProvider = accountName.caseInsensitiveCompare(snapshot.provider.displayName) == .orderedSame
+            if accountMatchesProvider, let plan, !plan.isEmpty {
+                if snapshot.isSubscriptionOnly {
+                    return "\(snapshot.provider.displayName) · Subscription"
+                }
+                if label.isEmpty || label == snapshot.provider.displayName || label == accountName {
+                    return "\(snapshot.provider.displayName) · \(plan)"
+                }
+                return "\(snapshot.provider.displayName) · \(plan) · \(label)"
+            }
+        }
         guard !label.isEmpty, label != snapshot.provider.displayName else {
             return snapshot.provider.displayName
         }

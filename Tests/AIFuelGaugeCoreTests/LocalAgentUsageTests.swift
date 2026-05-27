@@ -7,12 +7,13 @@ final class LocalAgentUsageTests: XCTestCase {
         try FileManager.default.createDirectory(at: home.appendingPathComponent(".claude/projects"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: home.appendingPathComponent(".codex/sessions"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: home.appendingPathComponent(".local/share/opencode"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: home.appendingPathComponent("Library/Application Support/Cursor"), withIntermediateDirectories: true)
         FileManager.default.createFile(atPath: home.appendingPathComponent(".local/share/opencode/opencode.db").path, contents: Data())
 
         let sources = LocalAgentDetector(homeDirectory: home).detectedSources()
 
-        XCTAssertEqual(sources.map(\.provider), [.claudeCode, .codex, .openCode])
-        XCTAssertEqual(sources.map(\.kind), [.jsonlDirectory, .jsonlDirectory, .sqliteDatabase])
+        XCTAssertEqual(sources.map(\.provider), [.claudeCode, .codex, .openCode, .cursor])
+        XCTAssertEqual(sources.map(\.kind), [.jsonlDirectory, .jsonlDirectory, .sqliteDatabase, .directory])
     }
 
     func testParsesClaudeJsonlAssistantUsageWithoutReadingMessageText() throws {
@@ -30,6 +31,7 @@ final class LocalAgentUsageTests: XCTestCase {
         XCTAssertEqual(snapshot.provider, .claudeCode)
         XCTAssertEqual(snapshot.source, .localLogs)
         XCTAssertEqual(snapshot.used, .tokens(input: 110, output: 25, cacheRead: 307, cacheWrite: 42))
+        XCTAssertNil(snapshot.account)
         XCTAssertNil(snapshot.limit)
         XCTAssertEqual(snapshot.confidence, .estimated)
         XCTAssertEqual(snapshot.updatedAt, Date(timeIntervalSince1970: 1_779_797_100))

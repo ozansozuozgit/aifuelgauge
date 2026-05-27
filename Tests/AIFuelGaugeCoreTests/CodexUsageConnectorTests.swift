@@ -43,6 +43,7 @@ final class CodexUsageConnectorTests: XCTestCase {
         XCTAssertEqual(snapshots.map(\.label), ["5h", "Weekly"])
         XCTAssertEqual(snapshots.map(\.used), [.percent(14), .percent(46)])
         XCTAssertEqual(snapshots.map(\.limit), [.percent(100), .percent(100)])
+        XCTAssertEqual(snapshots.map { $0.account?.plan }, ["Pro", "Pro"])
         XCTAssertEqual(snapshots[0].reset, .rollingWindow(secondsRemaining: 8612))
         XCTAssertEqual(snapshots[1].reset, .rollingWindow(secondsRemaining: 258176))
         XCTAssertEqual(snapshots[0].confidence, .exact)

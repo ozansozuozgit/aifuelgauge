@@ -90,9 +90,43 @@ final class UsageStatusTests: XCTestCase {
         let alerts = planner.alerts(previous: earlier, current: later)
 
         XCTAssertEqual(alerts.map(\.thresholdPercent), [0.75, 0.9])
-        XCTAssertEqual(alerts.last?.title, "Codex · 5h is at 91%")
+        XCTAssertEqual(alerts.last?.title, "Codex · 5h has 9% left")
         XCTAssertEqual(alerts.last?.body, "9% left · resets in 10m")
         XCTAssertEqual(alerts.last?.identifier, "codex-5h-90")
+    }
+
+    func testDashboardRowsShowSubscriptionPlansWithoutFakeQuotaData() {
+        let summary = UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .cursor,
+                source: .localLogs,
+                account: UsageAccount(identifier: "cursor-local", displayName: "Cursor", plan: "Pro ($20)"),
+                label: "Subscription",
+                used: .requests(0),
+                limit: nil,
+                reset: nil,
+                confidence: .unknown,
+                updatedAt: Date(timeIntervalSince1970: 100)
+            ),
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "codex-account", displayName: "Codex", plan: "Pro"),
+                label: "5h",
+                used: .percent(18),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3600),
+                confidence: .exact,
+                updatedAt: Date(timeIntervalSince1970: 100)
+            )
+        ])
+
+        let model = DashboardViewModel(summary: summary, now: Date(timeIntervalSince1970: 100))
+
+        XCTAssertEqual(model.primaryGauge?.title, "Codex · Pro · 5h")
+        XCTAssertEqual(model.rows.map(\.title), ["Cursor · Subscription"])
+        XCTAssertEqual(model.rows.map(\.value), ["Pro ($20)"])
+        XCTAssertNil(model.rows.first?.meterPercent)
     }
 
     func testAlertPlannerEmitsStaleSourceEvents() {

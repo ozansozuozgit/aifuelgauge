@@ -18,8 +18,11 @@ use right now without running into a limit?
   - Claude Code JSONL token aggregation from `~/.claude/projects`
   - Codex JSONL rate-limit parsing from `~/.codex/sessions` as fallback
   - OpenCode local database detection at `~/.local/share/opencode/opencode.db`
+  - Cursor app detection at `~/Library/Application Support/Cursor`
 - Compact dashboard view model and threshold logic.
-- Polished popover with a primary usage gauge, exact/estimated/unknown reliability labels, freshness text, and compact number formatting.
+- Polished popover with a primary usage gauge, subscription plan labels,
+  exact/estimated/unknown reliability labels, freshness text, and compact number
+  formatting.
 - Footer controls for Refresh, Settings, and Quit.
 - macOS Keychain storage scaffold for an OpenRouter API key.
 - Background refresh so opening the menu item does not block on large local logs.
@@ -90,10 +93,15 @@ make package
 - Codex shows remaining capacity first because that matches the Codex menu and
   is easier to act on.
 - The 5h lane is the main working-session quota. Weekly is the reserve.
+- Codex plan labels come from the account usage response when available. The
+  current `prolite` account value is shown as `Pro`.
 - Model-specific Codex caps are hidden while unused. If one becomes active, it
   appears as a readable model row, for example `Spark model · 5h`.
-- Claude Code token totals are estimates from local usage metadata, not hard
-  provider limits.
+- Claude Code is labeled `Free` in the local plan table, but token totals are
+  estimates from local usage metadata, not hard provider limits.
+- Cursor is labeled `Pro ($20)` when the local Cursor app data directory exists.
+  Cursor quota usage is not connected yet, so the row is a subscription label,
+  not a fake limit.
 - OpenRouter values are exact when an API key is saved in Settings.
 
 ## Product principle
@@ -106,9 +114,12 @@ Do not pretend estimates are exact. The app should always distinguish:
 
 ## Next useful build slices
 
-1. Add FSEvents/polling refresh for Claude/Codex local logs.
-2. Add OpenAI usage/cost connector.
-3. Replace OpenCode placeholder with SQLite-backed usage parsing.
-4. Add threshold notifications for 75%, 90%, and exhausted states.
-5. Add a proper `.app` bundle icon.
-6. Sign and notarize release builds.
+1. Add editable plan labels in Settings instead of hard-coded local defaults.
+2. Add a real Cursor usage connector if Cursor exposes quota metadata locally or
+   via account APIs.
+3. Add FSEvents/polling refresh for Claude/Codex/Cursor local state.
+4. Add OpenAI usage/cost connector.
+5. Replace OpenCode placeholder with SQLite-backed usage parsing.
+6. Add richer notifications: 25% left, 10% left, exhausted, and reset-ready.
+7. Add a proper `.app` bundle icon.
+8. Sign and notarize release builds.

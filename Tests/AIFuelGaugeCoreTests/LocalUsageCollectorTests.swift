@@ -7,9 +7,11 @@ final class LocalUsageCollectorTests: XCTestCase {
         let claudeDir = home.appendingPathComponent(".claude/projects/proj")
         let codexDir = home.appendingPathComponent(".codex/sessions/2026/05/26")
         let opencodeDir = home.appendingPathComponent(".local/share/opencode")
+        let cursorDir = home.appendingPathComponent("Library/Application Support/Cursor")
         try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: codexDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: opencodeDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: cursorDir, withIntermediateDirectories: true)
         try """
         {"type":"assistant","message":{"usage":{"input_tokens":10,"output_tokens":3,"cache_read_input_tokens":4,"cache_creation_input_tokens":5}}}
         """.write(to: claudeDir.appendingPathComponent("session.jsonl"), atomically: true, encoding: .utf8)
@@ -21,9 +23,13 @@ final class LocalUsageCollectorTests: XCTestCase {
         let collector = LocalUsageCollector(homeDirectory: home, now: { Date(timeIntervalSince1970: 2000) })
         let snapshots = try collector.collect()
 
-        XCTAssertEqual(snapshots.map(\.provider), [.claudeCode, .codex, .openCode])
+        XCTAssertEqual(snapshots.map(\.provider), [.claudeCode, .codex, .openCode, .cursor])
         XCTAssertEqual(snapshots[0].used, .tokens(input: 10, output: 3, cacheRead: 4, cacheWrite: 5))
+        XCTAssertEqual(snapshots[0].account?.plan, "Free")
         XCTAssertEqual(snapshots[1].used, .percent(66))
         XCTAssertEqual(snapshots[2].confidence, .unknown)
+        XCTAssertEqual(snapshots[3].label, "Subscription")
+        XCTAssertEqual(snapshots[3].account?.plan, "Pro ($20)")
+        XCTAssertTrue(snapshots[3].isSubscriptionOnly)
     }
 }
