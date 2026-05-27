@@ -270,6 +270,7 @@ private final class DashboardController: ObservableObject {
     @Published private(set) var refreshError: String?
     private var refreshTask: Task<Void, Never>?
     private var autoRefreshCancellable: AnyCancellable?
+    private var localSourceCancellable: AnyCancellable?
     private var preferenceCancellable: AnyCancellable?
     private var historyCancellable: AnyCancellable?
     private var summary: UsageSummary?
@@ -277,6 +278,7 @@ private final class DashboardController: ObservableObject {
     private var history: UsageHistorySeries
     private var notifiedStaleIDs = Set<String>()
     private var lastRefreshAt = Date.distantPast
+    private var lastLocalSourceFingerprint = LocalAgentSourceMonitor().fingerprint()
 
     init() {
         let loadedHistory = UsageHistoryFileStore(fileURL: AppStoragePaths.historyURL).load()
@@ -288,6 +290,7 @@ private final class DashboardController: ObservableObject {
             menuBarDisplayMode: AppPreferences.menuBarDisplayMode
         )
         startAutoRefresh()
+        startLocalSourceMonitor()
         observePreferences()
         observeHistoryChanges()
         refresh()
@@ -321,6 +324,24 @@ private final class DashboardController: ObservableObject {
             .sink { [weak self] _ in
                 guard let self, Date().timeIntervalSince(self.lastRefreshAt) >= AppPreferences.refreshIntervalSeconds else { return }
                 self.refresh()
+            }
+    }
+
+    private func startLocalSourceMonitor() {
+        localSourceCancellable = Timer.publish(every: 20, tolerance: 5, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                Task {
+                    let fingerprint = await Task.detached(priority: .utility) {
+                        LocalAgentSourceMonitor().fingerprint()
+                    }.value
+                    await MainActor.run {
+                        guard fingerprint != self.lastLocalSourceFingerprint else { return }
+                        self.lastLocalSourceFingerprint = fingerprint
+                        self.refresh()
+                    }
+                }
             }
     }
 

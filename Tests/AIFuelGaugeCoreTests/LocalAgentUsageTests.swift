@@ -17,6 +17,30 @@ final class LocalAgentUsageTests: XCTestCase {
         XCTAssertEqual(sources.map(\.kind), [.jsonlDirectory, .jsonlDirectory, .sqliteDatabase, .directory])
     }
 
+    func testLocalSourceFingerprintChangesWhenTrackedFilesChange() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let monitor = LocalAgentSourceMonitor(homeDirectory: home)
+        let initial = monitor.fingerprint()
+
+        let codexAuth = home.appendingPathComponent(".codex/auth.json")
+        try FileManager.default.createDirectory(at: codexAuth.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try #"{"tokens":"redacted"}"#.write(to: codexAuth, atomically: true, encoding: .utf8)
+
+        let withAuth = monitor.fingerprint()
+
+        XCTAssertNotEqual(initial, withAuth)
+        XCTAssertTrue(withAuth.values["codex-auth"]?.hasPrefix("file:") == true)
+
+        let codexSession = home.appendingPathComponent(".codex/sessions/2026/05/27/session.jsonl")
+        try FileManager.default.createDirectory(at: codexSession.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try #"{"type":"event_msg"}"#.write(to: codexSession, atomically: true, encoding: .utf8)
+
+        let withSession = monitor.fingerprint()
+
+        XCTAssertNotEqual(withAuth, withSession)
+        XCTAssertTrue(withSession.values["codex-sessions"]?.contains(":1:") == true)
+    }
+
     func testParsesClaudeJsonlAssistantUsageWithoutReadingMessageText() throws {
         let lines = [
             """

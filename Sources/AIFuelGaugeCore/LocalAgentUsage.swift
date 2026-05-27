@@ -63,6 +63,76 @@ public struct LocalAgentDetector {
     }
 }
 
+public struct LocalAgentSourceFingerprint: Equatable, Sendable {
+    public let values: [String: String]
+
+    public init(values: [String: String]) {
+        self.values = values
+    }
+}
+
+public struct LocalAgentSourceMonitor {
+    private let homeDirectory: URL
+    private let fileManager: FileManager
+
+    public init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser, fileManager: FileManager = .default) {
+        self.homeDirectory = homeDirectory
+        self.fileManager = fileManager
+    }
+
+    public func fingerprint() -> LocalAgentSourceFingerprint {
+        LocalAgentSourceFingerprint(values: [
+            "claude-projects": directoryStamp(homeDirectory.appendingPathComponent(".claude/projects"), allowedExtensions: ["jsonl"]),
+            "codex-sessions": directoryStamp(homeDirectory.appendingPathComponent(".codex/sessions"), allowedExtensions: ["jsonl"]),
+            "codex-auth": fileStamp(homeDirectory.appendingPathComponent(".codex/auth.json")),
+            "cursor-state": fileStamp(homeDirectory.appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb")),
+            "opencode-db": fileStamp(homeDirectory.appendingPathComponent(".local/share/opencode/opencode.db"))
+        ])
+    }
+
+    private func fileStamp(_ url: URL) -> String {
+        guard fileManager.fileExists(atPath: url.path),
+              let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]) else {
+            return "missing"
+        }
+        let modifiedAt = values.contentModificationDate?.timeIntervalSince1970 ?? 0
+        let size = values.fileSize ?? 0
+        return "file:\(Int(modifiedAt * 1_000)):\(size)"
+    }
+
+    private func directoryStamp(_ url: URL, allowedExtensions: Set<String>) -> String {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return "missing"
+        }
+        let rootModifiedAt = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate?.timeIntervalSince1970) ?? 0
+        guard let enumerator = fileManager.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey]
+        ) else {
+            return "dir:\(Int(rootModifiedAt * 1_000)):0:0"
+        }
+
+        var count = 0
+        var totalSize = 0
+        var newestModifiedAt = rootModifiedAt
+        for item in enumerator {
+            guard count < 400, let fileURL = item as? URL else { break }
+            if !allowedExtensions.isEmpty, !allowedExtensions.contains(fileURL.pathExtension.lowercased()) {
+                continue
+            }
+            guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey]),
+                  values.isRegularFile == true else {
+                continue
+            }
+            count += 1
+            totalSize += values.fileSize ?? 0
+            newestModifiedAt = max(newestModifiedAt, values.contentModificationDate?.timeIntervalSince1970 ?? 0)
+        }
+        return "dir:\(Int(newestModifiedAt * 1_000)):\(count):\(totalSize)"
+    }
+}
+
 public enum LocalUsageParseError: Error, Equatable {
     case noUsageFound
 }

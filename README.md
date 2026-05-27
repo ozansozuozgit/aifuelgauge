@@ -57,6 +57,8 @@ use right now without running into a limit?
 - Cursor spend rows come from the provider response instead of a hardcoded plan
   budget.
 - Background refresh so opening the menu item does not block on large local logs.
+- Local source change polling refreshes sooner when Claude/Codex/Cursor state
+  changes between normal sync intervals.
 - Optional live OpenRouter polling when a key is saved in Settings.
 
 ## Install standalone
@@ -163,10 +165,8 @@ Do not pretend estimates are exact. The app should always distinguish:
 
 ## Next useful build slices
 
-1. Add FSEvents/polling refresh for Claude/Codex/Cursor local state.
-2. Add OpenAI usage/cost connector.
-3. Replace OpenCode placeholder with SQLite-backed usage parsing.
-4. Add full 7-day history view and configurable menu bar sparklines.
-5. Add WidgetKit widgets for the active provider and tightest quota.
-6. Add Homebrew cask and signed/notarized release builds.
-7. Add signed/notarized release builds.
+1. Add OpenAI usage/cost connector.
+2. Replace OpenCode placeholder with SQLite-backed usage parsing.
+3. Add configurable menu bar sparklines.
+4. Add WidgetKit widgets for the active provider and tightest quota.
+5. Add Homebrew cask and signed/notarized release builds.
