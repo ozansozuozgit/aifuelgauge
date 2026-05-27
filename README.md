@@ -1,6 +1,9 @@
 # AI Fuel Gauge
 
-Local-first macOS menu bar prototype for tracking LLM/API quota and usage.
+Local-first macOS menu bar app for tracking LLM/API quota and usage.
+
+AI Fuel Gauge answers one question from the menu bar: which AI lane can you
+use right now without running into a limit?
 
 ## Current v0 scope
 
@@ -9,9 +12,11 @@ Local-first macOS menu bar prototype for tracking LLM/API quota and usage.
 - OpenRouter connector for:
   - `GET /api/v1/key`
   - `GET /api/v1/credits`
+- Codex account connector using the local Codex OAuth file at `~/.codex/auth.json`
+  and the Codex account usage endpoint.
 - Local coding-agent scaffolding:
   - Claude Code JSONL token aggregation from `~/.claude/projects`
-  - Codex JSONL rate-limit parsing from `~/.codex/sessions`
+  - Codex JSONL rate-limit parsing from `~/.codex/sessions` as fallback
   - OpenCode local database detection at `~/.local/share/opencode/opencode.db`
 - Compact dashboard view model and threshold logic.
 - Polished popover with a primary usage gauge, exact/estimated/unknown reliability labels, freshness text, and compact number formatting.
@@ -19,6 +24,40 @@ Local-first macOS menu bar prototype for tracking LLM/API quota and usage.
 - macOS Keychain storage scaffold for an OpenRouter API key.
 - Background refresh so opening the menu item does not block on large local logs.
 - Optional live OpenRouter polling when a key is saved in Settings.
+
+## Install standalone
+
+Build and install a standalone menu bar app into `~/Applications`, with a
+LaunchAgent so it starts at login:
+
+```bash
+git clone https://github.com/ozansozuozgit/aifuelgauge.git
+cd aifuelgauge
+make install
+```
+
+The install script builds a release `.app`, copies it to
+`~/Applications/AI Fuel Gauge.app`, ad-hoc signs it for local use, and enables:
+
+```text
+~/Library/LaunchAgents/com.ozansozuoz.aifuelgauge.plist
+```
+
+Uninstall:
+
+```bash
+make uninstall
+```
+
+Package without installing:
+
+```bash
+make package
+open dist
+```
+
+This is not notarized yet. On first launch, macOS may require you to approve
+the app in Privacy & Security.
 
 ## Run
 
@@ -38,6 +77,25 @@ scripts/dev-run.sh
 
 That kills any stale SwiftPM debug `aifuelgauge` process from this repo before launching the fresh build.
 
+The same commands are available through `make`:
+
+```bash
+make test
+make run
+make package
+```
+
+## What The Numbers Mean
+
+- Codex shows remaining capacity first because that matches the Codex menu and
+  is easier to act on.
+- The 5h lane is the main working-session quota. Weekly is the reserve.
+- Model-specific Codex caps are hidden while unused. If one becomes active, it
+  appears as a readable model row, for example `Spark model · 5h`.
+- Claude Code token totals are estimates from local usage metadata, not hard
+  provider limits.
+- OpenRouter values are exact when an API key is saved in Settings.
+
 ## Product principle
 
 Do not pretend estimates are exact. The app should always distinguish:
@@ -52,5 +110,5 @@ Do not pretend estimates are exact. The app should always distinguish:
 2. Add OpenAI usage/cost connector.
 3. Replace OpenCode placeholder with SQLite-backed usage parsing.
 4. Add threshold notifications for 75%, 90%, and exhausted states.
-5. Add launch-at-login and a proper `.app` bundle icon.
-6. Package as a `.app` bundle, then sign/notarize later.
+5. Add a proper `.app` bundle icon.
+6. Sign and notarize release builds.

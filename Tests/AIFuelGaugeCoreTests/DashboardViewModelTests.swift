@@ -34,6 +34,7 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.statusLabel, "Watch")
         XCTAssertEqual(model.insight, "Start watching OpenRouter · main: 24% left.")
         XCTAssertEqual(model.trustDigest, "1 exact · 1 estimated")
+        XCTAssertEqual(model.footerNote, "Account live · local fallback")
         XCTAssertEqual(model.primaryGauge?.title, "OpenRouter · main")
         XCTAssertEqual(model.primaryGauge?.value, "76%")
         XCTAssertEqual(model.primaryGauge?.subtitle, "Exact · resets in 1h")
@@ -177,13 +178,48 @@ final class DashboardViewModelTests: XCTestCase {
             )
         ]), now: now)
 
-        XCTAssertEqual(model.title, "Codex 43% · 3d")
-        XCTAssertEqual(model.insight, "Use Codex · 5h now; Codex · Weekly is the reserve at 57% left.")
-        XCTAssertEqual(model.primaryGauge?.subtitle, "Exact · resets Sat 4 PM (3d 2h)")
-        XCTAssertEqual(model.rows.map(\.title), ["Codex · Weekly", "Codex · 5h"])
+        XCTAssertEqual(model.title, "Codex 5h 95% left · 4m")
+        XCTAssertEqual(model.insight, "Use Codex · 5h now: 95% left. Weekly reserve is 57% left.")
+        XCTAssertEqual(model.primaryGauge?.value, "95%")
+        XCTAssertEqual(model.primaryGauge?.subtitle, "Exact · left · resets in 4m")
+        XCTAssertEqual(model.primaryGauge?.caption, "5% used")
+        XCTAssertEqual(model.rows.map(\.title), ["Codex · Weekly"])
+        XCTAssertEqual(model.rows.map(\.value), ["57% left"])
         XCTAssertEqual(model.rows.map(\.detail), [
-            "57% left · resets Sat 4 PM (3d 2h) · Exact · local · 3h ago",
-            "95% left · resets in 4m · Exact · local · 3h ago"
+            "43% used · resets Sat 4 PM (3d 2h) · Exact · local · 3h ago"
         ])
+    }
+
+    func testCodexAccountUsageReadsAsRemainingCapacity() {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                label: "5h",
+                used: .percent(14),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3600),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                label: "Weekly",
+                used: .percent(46),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 72 * 3600),
+                confidence: .exact,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        XCTAssertEqual(model.title, "Codex 5h 86% left · 1h")
+        XCTAssertEqual(model.footerNote, "Account live")
+        XCTAssertEqual(model.rows.map(\.title), ["Codex · Weekly"])
+        XCTAssertEqual(model.rows.map(\.value), ["54% left"])
+        XCTAssertEqual(model.rows[0].detail, "46% used · resets Sat 7 PM (3d) · Exact · account · now")
+        XCTAssertEqual(model.rows[0].explanation, "")
     }
 }

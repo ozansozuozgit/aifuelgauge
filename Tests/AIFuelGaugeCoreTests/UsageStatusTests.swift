@@ -51,6 +51,26 @@ final class UsageStatusTests: XCTestCase {
         XCTAssertEqual(summary.menuBarTitle, "AI usage")
     }
 
+    func testCodexMenuBarPrefersSessionLaneWhileWeeklyIsHealthy() {
+        let summary = UsageSummary(snapshots: [
+            snapshot(provider: .codex, label: "5h", percent: 0.14, reset: 3600),
+            snapshot(provider: .codex, label: "Weekly", percent: 0.46, reset: 72 * 3600)
+        ])
+
+        XCTAssertEqual(summary.primarySnapshot?.label, "5h")
+        XCTAssertEqual(summary.menuBarTitle, "Codex 5h 86% left · 1h")
+    }
+
+    func testCodexMenuBarShowsWeeklyWhenWeeklyIsActuallyConstrained() {
+        let summary = UsageSummary(snapshots: [
+            snapshot(provider: .codex, label: "5h", percent: 0.14, reset: 3600),
+            snapshot(provider: .codex, label: "Weekly", percent: 0.82, reset: 72 * 3600)
+        ])
+
+        XCTAssertEqual(summary.primarySnapshot?.label, "Weekly")
+        XCTAssertEqual(summary.menuBarTitle, "Codex Wk 18% left · 3d")
+    }
+
     func testNotificationThresholdsOnlyFireOnceWhenCrossedUpwards() {
         let thresholds = ThresholdTracker(thresholds: [0.5, 0.75, 0.9])
 

@@ -62,22 +62,12 @@ public struct DashboardViewModel: Equatable, Sendable {
         self.subtitle = Self.subtitle(for: summary, now: now)
         self.insight = Self.insight(for: summary, now: now)
         self.trustDigest = Self.trustDigest(for: summary)
-        self.footerNote = "Local monitoring · No cloud sync"
+        self.footerNote = Self.footerNote(for: summary)
         self.primaryGauge = summary.primarySnapshot.flatMap { Self.gauge(for: $0, now: now) }
+        let hiddenPrimaryID = summary.primarySnapshot.flatMap { Self.hidesPrimaryRow($0) ? $0.id : nil }
         self.rows = summary.snapshots
-            .sorted { lhs, rhs in
-                if lhs.state != rhs.state { return lhs.state > rhs.state }
-                switch (lhs.usagePercent, rhs.usagePercent) {
-                case let (left?, right?) where left != right: return left > right
-                case (_?, nil): return true
-                case (nil, _?): return false
-                default:
-                    if lhs.provider.displayName != rhs.provider.displayName {
-                        return lhs.provider.displayName < rhs.provider.displayName
-                    }
-                    return lhs.label < rhs.label
-                }
-            }
+            .filter { $0.id != hiddenPrimaryID }
+            .sorted(by: Self.prefersRowOrder)
             .map { snapshot in
                 DashboardRow(
                     id: snapshot.id,
@@ -97,12 +87,15 @@ public struct DashboardViewModel: Equatable, Sendable {
         guard let usagePercent = snapshot.usagePercent else { return nil }
         let clamped = min(max(usagePercent, 0), 1)
         let reset = snapshot.reset.map { resetPhrase(for: $0, now: now) } ?? "live quota"
-        let value = "\(Int((usagePercent * 100).rounded()))%"
+        let value = "\(displayPercent(for: snapshot))%"
+        let subtitle = prefersRemainingDisplay(snapshot)
+            ? "\(confidenceLabel(snapshot.confidence)) · left · \(reset)"
+            : "\(confidenceLabel(snapshot.confidence)) · \(reset)"
         return DashboardGauge(
             title: Self.rowTitle(for: snapshot),
             value: value,
-            subtitle: "\(confidenceLabel(snapshot.confidence)) · \(reset)",
-            caption: remainingLabel(for: snapshot) ?? "Limit window active",
+            subtitle: subtitle,
+            caption: gaugeCaption(for: snapshot) ?? "Limit window active",
             percent: clamped,
             state: snapshot.state,
             confidence: snapshot.confidence
@@ -133,6 +126,9 @@ public struct DashboardViewModel: Equatable, Sendable {
         guard let snapshot = summary.primarySnapshot, let percent = snapshot.usagePercent else {
             let localCount = summary.snapshots.filter { $0.source == .localLogs }.count
             return "\(localCount) local source\(localCount == 1 ? "" : "s") found. Exact limits still need metadata."
+        }
+        if let codexInsight = codexInsight(for: summary) {
+            return codexInsight
         }
         let remaining = max(0, Int(((1 - percent) * 100).rounded()))
         let comparable = summary.snapshots.compactMap { candidate -> (UsageSnapshot, Double)? in
@@ -168,6 +164,18 @@ public struct DashboardViewModel: Equatable, Sendable {
         if estimated > 0 { parts.append("\(estimated) estimated") }
         if unknown > 0 { parts.append("\(unknown) unknown") }
         return parts.isEmpty ? "No sources" : parts.joined(separator: " · ")
+    }
+
+    private static func footerNote(for summary: UsageSummary) -> String {
+        guard !summary.snapshots.isEmpty else { return "No sources" }
+        let hasAccount = summary.snapshots.contains { $0.source == .experimentalWebSession || $0.source == .officialAPI }
+        let hasFallback = summary.snapshots.contains { $0.source == .localLogs }
+        switch (hasAccount, hasFallback) {
+        case (true, true): return "Account live · local fallback"
+        case (true, false): return "Account live"
+        case (false, true): return "Local fallback"
+        case (false, false): return "No sources"
+        }
     }
 
     private static func rowTitle(for snapshot: UsageSnapshot) -> String {
@@ -213,6 +221,18 @@ public struct DashboardViewModel: Equatable, Sendable {
         }
     }
 
+    private static func usedLabel(for snapshot: UsageSnapshot) -> String? {
+        guard let usagePercent = snapshot.usagePercent else { return nil }
+        return "\(Int((usagePercent * 100).rounded()))% used"
+    }
+
+    private static func gaugeCaption(for snapshot: UsageSnapshot) -> String? {
+        if prefersRemainingDisplay(snapshot) {
+            return usedLabel(for: snapshot)
+        }
+        return remainingLabel(for: snapshot)
+    }
+
     private static func tokenBreakdown(for quantity: UsageQuantity) -> String? {
         guard case let .tokens(input, output, cacheRead, cacheWrite) = quantity else { return nil }
         let cache = cacheRead + cacheWrite
@@ -229,8 +249,10 @@ public struct DashboardViewModel: Equatable, Sendable {
         switch (snapshot.provider, snapshot.source, snapshot.confidence) {
         case (.openRouter, .officialAPI, .exact):
             return "Exact from official OpenRouter API. Shows comparable credits with remaining capacity and refresh freshness."
+        case (.codex, .experimentalWebSession, .exact):
+            return ""
         case (.codex, .localLogs, .exact):
-            return "Exact from local Codex rate-limit metadata. Reads quota window, reset time, and percent without prompt text."
+            return "Fallback from local Codex session metadata. Useful when the account endpoint is unavailable, but it can lag behind Codex."
         case (.codex, .localLogs, .unknown):
             let lastSeen = lastSeenPercent(for: snapshot).map { "Last seen \($0)% used before reset. " } ?? ""
             return "\(lastSeen)Waiting for Codex to emit a fresh \(snapshot.label) quota event; not showing expired data as current."
@@ -254,7 +276,9 @@ public struct DashboardViewModel: Equatable, Sendable {
             return "Expired window · local · last event \(relativeTime(from: snapshot.updatedAt, now: now))"
         }
         var parts: [String] = []
-        if let remaining = remainingLabel(for: snapshot) {
+        if prefersRemainingDisplay(snapshot), let used = usedLabel(for: snapshot) {
+            parts.append(used)
+        } else if let remaining = remainingLabel(for: snapshot) {
             parts.append(remaining)
         } else if let breakdown = tokenBreakdown(for: snapshot.used) {
             parts.append(breakdown)
@@ -270,6 +294,9 @@ public struct DashboardViewModel: Equatable, Sendable {
 
     private static func value(for snapshot: UsageSnapshot) -> String {
         if let usagePercent = snapshot.usagePercent {
+            if prefersRemainingDisplay(snapshot) {
+                return "\(displayPercent(for: snapshot))% left"
+            }
             return "\(Int((usagePercent * 100).rounded()))% used"
         }
 
@@ -308,8 +335,72 @@ public struct DashboardViewModel: Equatable, Sendable {
         switch source {
         case .localLogs: "local"
         case .officialAPI: "API"
-        case .experimentalWebSession: "experimental"
+        case .experimentalWebSession: "account"
         }
+    }
+
+    private static func prefersRowOrder(_ lhs: UsageSnapshot, _ rhs: UsageSnapshot) -> Bool {
+        if lhs.state != rhs.state { return lhs.state > rhs.state }
+        if lhs.provider == .codex, rhs.provider == .codex, lhs.state == .safe {
+            let leftPriority = codexLanePriority(lhs)
+            let rightPriority = codexLanePriority(rhs)
+            if leftPriority != rightPriority { return leftPriority < rightPriority }
+        }
+        switch (lhs.usagePercent, rhs.usagePercent) {
+        case let (left?, right?) where left != right:
+            return left > right
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        default:
+            if lhs.provider.displayName != rhs.provider.displayName {
+                return lhs.provider.displayName < rhs.provider.displayName
+            }
+            return lhs.label < rhs.label
+        }
+    }
+
+    private static func prefersRemainingDisplay(_ snapshot: UsageSnapshot) -> Bool {
+        snapshot.provider == .codex && snapshot.usagePercent != nil
+    }
+
+    private static func hidesPrimaryRow(_ snapshot: UsageSnapshot) -> Bool {
+        snapshot.provider == .codex && snapshot.usagePercent != nil
+    }
+
+    private static func displayPercent(for snapshot: UsageSnapshot) -> Int {
+        guard let usagePercent = snapshot.usagePercent else { return 0 }
+        let value = prefersRemainingDisplay(snapshot) ? max(0, 1 - usagePercent) : usagePercent
+        return Int((value * 100).rounded())
+    }
+
+    private static func codexLanePriority(_ snapshot: UsageSnapshot) -> Int {
+        let label = snapshot.label.lowercased()
+        if label.contains("5h") || label.contains("session") { return 0 }
+        if label.contains("weekly") || label.contains("week") || label.contains("7d") { return 2 }
+        return 1
+    }
+
+    private static func codexInsight(for summary: UsageSummary) -> String? {
+        let codex = summary.snapshots.filter { $0.provider == .codex }
+        guard !codex.isEmpty else { return nil }
+        if let stressed = codex
+            .filter({ $0.state >= .caution })
+            .sorted(by: prefersRowOrder)
+            .first,
+           let remaining = remainingLabel(for: stressed) {
+            return "\(rowTitle(for: stressed)) is the constraint: \(remaining)."
+        }
+        let session = codex.first { codexLanePriority($0) == 0 }
+        let weekly = codex.first { codexLanePriority($0) == 2 }
+        if let session, let sessionRemaining = remainingLabel(for: session) {
+            if let weekly, let weeklyRemaining = remainingLabel(for: weekly) {
+                return "Use \(rowTitle(for: session)) now: \(sessionRemaining). Weekly reserve is \(weeklyRemaining)."
+            }
+            return "Use \(rowTitle(for: session)) now: \(sessionRemaining)."
+        }
+        return nil
     }
 
     private static func relativeTime(from date: Date, now: Date) -> String {

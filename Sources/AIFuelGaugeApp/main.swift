@@ -130,6 +130,17 @@ private final class DashboardController: ObservableObject {
                 warnings.append("Local refresh failed")
             }
 
+            do {
+                let codexSnapshots = try await CodexUsageConnector().fetchUsage()
+                if !codexSnapshots.isEmpty {
+                    snapshots.removeAll { $0.provider == .codex && $0.source == .localLogs }
+                    snapshots.append(contentsOf: codexSnapshots)
+                }
+            } catch {
+                let hasLocalCodexFallback = snapshots.contains { $0.provider == .codex && $0.source == .localLogs }
+                warnings.append(hasLocalCodexFallback ? "Codex account unavailable, using local fallback" : "Codex account unavailable")
+            }
+
             if let openRouterKey = KeychainStore.readOpenRouterKey(), !openRouterKey.isEmpty {
                 let connector = OpenRouterConnector()
                 do {
@@ -194,9 +205,9 @@ private struct DashboardView: View {
             } else {
                 UnknownGaugeView()
             }
-            if model.rows.isEmpty {
+            if model.rows.isEmpty, model.primaryGauge == nil {
                 EmptySourcesView()
-            } else {
+            } else if !model.rows.isEmpty {
                 ScrollView {
                     VStack(spacing: 0) {
                         ForEach(model.rows) { row in
@@ -208,13 +219,13 @@ private struct DashboardView: View {
                     }
                 }
                 .frame(maxHeight: 230)
-                .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             footer
         }
         .padding(16)
         .frame(width: 460, height: 500)
-        .background(.regularMaterial)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private var header: some View {
@@ -243,9 +254,9 @@ private struct DashboardView: View {
                 .foregroundStyle(controller.refreshError == nil ? Color.secondary.opacity(0.60) : Color.red)
                 .lineLimit(1)
             Spacer(minLength: 8)
-            FooterButton(title: "Refresh", action: actions.refresh)
-            FooterButton(title: "Settings", action: actions.settings)
-            FooterButton(title: "Quit", action: actions.quit)
+            FooterButton(title: "Refresh", systemName: "arrow.clockwise", action: actions.refresh)
+            FooterButton(title: "Settings", systemName: "slider.horizontal.3", action: actions.settings)
+            FooterButton(title: "Quit", systemName: "xmark", action: actions.quit)
         }
         .padding(.top, 1)
     }
@@ -270,9 +281,9 @@ private struct InsightStrip: View {
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 9)
-        .background(color(for: state).opacity(0.10), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(color(for: state).opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(color(for: state).opacity(0.20), lineWidth: 1)
         )
     }
@@ -326,10 +337,10 @@ private struct PrimaryGaugeView: View {
             }
         }
         .padding(12)
-        .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.78), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(.white.opacity(0.20), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
         )
     }
 }
@@ -345,7 +356,7 @@ private struct UnknownGaugeView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
-        .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.70), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -361,7 +372,7 @@ private struct EmptySourcesView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.70), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -394,17 +405,19 @@ private struct SourceRowView: View {
                 MiniMeter(percent: percent, label: row.meterLabel ?? "quota lane", state: row.state)
                     .padding(.leading, 16)
             }
-            HStack(alignment: .top, spacing: 6) {
-                Image(systemName: row.confidence == .exact ? "checkmark.seal.fill" : "info.circle.fill")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(color(for: row.state).opacity(row.confidence == .unknown ? 0.65 : 0.95))
-                    .frame(width: 10)
-                Text(row.explanation)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary.opacity(0.82))
-                    .lineLimit(2)
+            if !row.explanation.isEmpty {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: row.confidence == .exact ? "checkmark.seal.fill" : "info.circle.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(color(for: row.state).opacity(row.confidence == .unknown ? 0.65 : 0.95))
+                        .frame(width: 10)
+                    Text(row.explanation)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary.opacity(0.82))
+                        .lineLimit(2)
+                }
+                .padding(.leading, 16)
             }
-            .padding(.leading, 16)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 10)
@@ -457,17 +470,23 @@ private struct StatePill: View {
 
 private struct FooterButton: View {
     let title: String
+    let systemName: String
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .font(.system(size: 10, weight: .semibold))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(.quaternary, in: Capsule())
+            HStack(spacing: 4) {
+                Image(systemName: systemName)
+                    .font(.system(size: 9, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(.quaternary, in: Capsule())
         }
         .buttonStyle(.plain)
+        .help(title)
     }
 }
 

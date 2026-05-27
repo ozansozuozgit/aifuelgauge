@@ -212,14 +212,7 @@ public struct UsageSummary: Equatable, Sendable {
 
     public var primarySnapshot: UsageSnapshot? {
         snapshots
-            .sorted { lhs, rhs in
-                switch (lhs.usagePercent, rhs.usagePercent) {
-                case let (left?, right?): return left > right
-                case (_?, nil): return true
-                case (nil, _?): return false
-                case (nil, nil): return lhs.updatedAt > rhs.updatedAt
-                }
-            }
+            .sorted(by: Self.prefersForPrimary)
             .first
     }
 
@@ -227,11 +220,60 @@ public struct UsageSummary: Equatable, Sendable {
         guard let primarySnapshot, let percent = primarySnapshot.usagePercent else {
             return "AI usage"
         }
-        let percentage = Int((percent * 100).rounded())
-        if let resetTitle = primarySnapshot.reset?.compactTitle {
-            return "\(primarySnapshot.provider.shortName) \(percentage)% · \(resetTitle)"
+        let percentage: Int
+        let qualifier: String
+        if Self.prefersRemainingDisplay(primarySnapshot) {
+            percentage = Int((max(0, 1 - percent) * 100).rounded())
+            qualifier = " left"
+        } else {
+            percentage = Int((percent * 100).rounded())
+            qualifier = ""
         }
-        return "\(primarySnapshot.provider.shortName) \(percentage)%"
+        let lane = Self.menuLaneLabel(for: primarySnapshot).map { " \($0)" } ?? ""
+        if let resetTitle = primarySnapshot.reset?.compactTitle {
+            return "\(primarySnapshot.provider.shortName)\(lane) \(percentage)%\(qualifier) · \(resetTitle)"
+        }
+        return "\(primarySnapshot.provider.shortName)\(lane) \(percentage)%\(qualifier)"
+    }
+
+    private static func prefersForPrimary(_ lhs: UsageSnapshot, _ rhs: UsageSnapshot) -> Bool {
+        if lhs.state != rhs.state { return lhs.state > rhs.state }
+
+        if lhs.provider == .codex, rhs.provider == .codex, lhs.state == .safe {
+            let leftPriority = codexLanePriority(lhs)
+            let rightPriority = codexLanePriority(rhs)
+            if leftPriority != rightPriority { return leftPriority < rightPriority }
+        }
+
+        switch (lhs.usagePercent, rhs.usagePercent) {
+        case let (left?, right?) where left != right:
+            return left > right
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        default:
+            return lhs.updatedAt > rhs.updatedAt
+        }
+    }
+
+    private static func prefersRemainingDisplay(_ snapshot: UsageSnapshot) -> Bool {
+        snapshot.provider == .codex && snapshot.usagePercent != nil
+    }
+
+    private static func codexLanePriority(_ snapshot: UsageSnapshot) -> Int {
+        let label = snapshot.label.lowercased()
+        if label.contains("5h") || label.contains("session") { return 0 }
+        if label.contains("weekly") || label.contains("week") || label.contains("7d") { return 2 }
+        return 1
+    }
+
+    private static func menuLaneLabel(for snapshot: UsageSnapshot) -> String? {
+        guard snapshot.provider == .codex else { return nil }
+        let label = snapshot.label.lowercased()
+        if label.contains("5h") || label.contains("session") { return "5h" }
+        if label.contains("weekly") || label.contains("week") || label.contains("7d") { return "Wk" }
+        return nil
     }
 }
 
