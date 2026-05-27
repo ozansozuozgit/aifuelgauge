@@ -29,17 +29,27 @@ final class CursorUsageConnectorTests: XCTestCase {
             identityHint: "u***r@example.com"
         )
 
-        XCTAssertEqual(snapshots.map(\.provider), [.cursor, .cursor, .cursor])
-        XCTAssertEqual(snapshots.map(\.source), [.experimentalWebSession, .experimentalWebSession, .experimentalWebSession])
-        XCTAssertEqual(snapshots.map(\.label), ["Included total", "API usage", "Auto usage"])
+        XCTAssertEqual(snapshots.map(\.provider), [.cursor, .cursor, .cursor, .cursor, .cursor])
+        XCTAssertEqual(snapshots.map(\.source), [
+            .experimentalWebSession,
+            .experimentalWebSession,
+            .experimentalWebSession,
+            .experimentalWebSession,
+            .experimentalWebSession
+        ])
+        XCTAssertEqual(snapshots.map(\.label), ["Included total", "API usage", "Auto usage", "Included spend", "Bonus spend"])
         XCTAssertEqual(snapshots.map(\.used), [
             .percent(59.112820512820505),
             .percent(100),
-            .percent(46.20666666666667)
+            .percent(46.20666666666667),
+            .usd(20),
+            .usd(95.27)
         ])
-        XCTAssertEqual(snapshots.map(\.limit), [.percent(100), .percent(100), .percent(100)])
-        XCTAssertEqual(snapshots.map(\.confidence), [.exact, .exact, .exact])
+        XCTAssertEqual(snapshots.map(\.limit), [.percent(100), .percent(100), .percent(100), nil, nil])
+        XCTAssertEqual(snapshots.map(\.confidence), [.exact, .exact, .exact, .exact, .exact])
         XCTAssertEqual(snapshots.map(\.updatedAt), [
+            Date(timeIntervalSince1970: 200),
+            Date(timeIntervalSince1970: 200),
             Date(timeIntervalSince1970: 200),
             Date(timeIntervalSince1970: 200),
             Date(timeIntervalSince1970: 200)
@@ -47,11 +57,40 @@ final class CursorUsageConnectorTests: XCTestCase {
         XCTAssertEqual(snapshots.map(\.reset), [
             .fixed(Date(timeIntervalSince1970: 1_780_785_201)),
             .fixed(Date(timeIntervalSince1970: 1_780_785_201)),
+            .fixed(Date(timeIntervalSince1970: 1_780_785_201)),
+            .fixed(Date(timeIntervalSince1970: 1_780_785_201)),
             .fixed(Date(timeIntervalSince1970: 1_780_785_201))
         ])
         XCTAssertEqual(snapshots.first?.account?.plan, "Pro")
         XCTAssertEqual(snapshots.first?.account?.identifier, "cursor-abc123")
         XCTAssertEqual(snapshots.first?.account?.identityHint, "u***r@example.com")
+    }
+
+    func testParsesCursorSpendWithoutHardcodingSubscriptionBudget() throws {
+        let data = Data(
+            """
+            {
+              "billingCycleEnd": 1780785201000,
+              "planUsage": {
+                "totalSpend": 7300,
+                "includedSpend": 7000,
+                "bonusSpend": 300
+              }
+            }
+            """.utf8
+        )
+
+        let snapshots = try CursorUsageResponseParser(now: { Date(timeIntervalSince1970: 200) }).parse(
+            data: data,
+            plan: "Pro Plus",
+            accountIdentifier: "cursor-abc123"
+        )
+
+        XCTAssertEqual(snapshots.map(\.label), ["Included spend", "Bonus spend"])
+        XCTAssertEqual(snapshots.map(\.used), [.usd(70), .usd(3)])
+        XCTAssertEqual(snapshots.map(\.limit), [nil, nil])
+        XCTAssertEqual(snapshots.map(\.usagePercent), [nil, nil])
+        XCTAssertEqual(Set(snapshots.compactMap(\.account?.plan)), ["Pro Plus"])
     }
 
     func testRejectsCursorUsageWithoutAnyComparableLane() {

@@ -17,7 +17,8 @@ use right now without running into a limit?
 - Codex account connector using the local Codex OAuth file at `~/.codex/auth.json`
   and the Codex account usage endpoint.
 - Cursor account connector using local Cursor auth state and the current-period
-  usage endpoint.
+  usage endpoint for exact included/API/auto usage lanes plus response-derived
+  spend rows.
 - Local coding-agent scaffolding:
   - Claude Code JSONL token aggregation from `~/.claude/projects`
   - Codex JSONL rate-limit parsing from `~/.codex/sessions` as fallback
@@ -52,6 +53,8 @@ use right now without running into a limit?
 - OpenRouter key test action verifies exact usage access before saving.
 - Cursor live-usage test verifies local account auth and current-period lanes
   without exposing the token.
+- Cursor spend rows come from the provider response instead of a hardcoded plan
+  budget.
 - Background refresh so opening the menu item does not block on large local logs.
 - Optional live OpenRouter polling when a key is saved in Settings.
 

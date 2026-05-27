@@ -602,6 +602,29 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertFalse(status.contains("user@example.com"))
     }
 
+    func testCursorSpendRowsShowDollarsWithoutPretendingHardLimit() {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "cursor-account", displayName: "Cursor", plan: "Pro Plus"),
+                label: "Included spend",
+                used: .usd(70),
+                limit: nil,
+                reset: .rollingWindow(secondsRemaining: 3600),
+                confidence: .exact,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        XCTAssertNil(model.primaryGauge)
+        XCTAssertEqual(model.rows.first?.title, "Cursor · Pro Plus · Included spend")
+        XCTAssertEqual(model.rows.first?.value, "$70")
+        XCTAssertEqual(model.rows.first?.meterPercent, nil)
+        XCTAssertEqual(model.rows.first?.detail, "resets in 1h · Exact · account · now")
+    }
+
     func testViewModelUsesConfiguredMenuBarDisplayMode() {
         let now = Date(timeIntervalSince1970: 100)
         let summary = UsageSummary(snapshots: [

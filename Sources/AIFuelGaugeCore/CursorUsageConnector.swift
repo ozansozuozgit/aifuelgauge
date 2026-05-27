@@ -150,6 +150,29 @@ public struct CursorUsageResponseParser: Sendable {
             reset: reset,
             updatedAt: generatedAt
         ))
+        snapshots.append(contentsOf: spendSnapshot(
+            account: account,
+            label: "Included spend",
+            cents: planUsage.includedSpend,
+            reset: reset,
+            updatedAt: generatedAt
+        ))
+        snapshots.append(contentsOf: spendSnapshot(
+            account: account,
+            label: "Bonus spend",
+            cents: planUsage.bonusSpend,
+            reset: reset,
+            updatedAt: generatedAt
+        ))
+        if snapshots.isEmpty {
+            snapshots.append(contentsOf: spendSnapshot(
+                account: account,
+                label: "Total spend",
+                cents: planUsage.totalSpend,
+                reset: reset,
+                updatedAt: generatedAt
+            ))
+        }
 
         guard !snapshots.isEmpty else { throw CursorUsageConnectorError.invalidUsageResponse }
         return snapshots
@@ -178,6 +201,29 @@ public struct CursorUsageResponseParser: Sendable {
         ]
     }
 
+    private func spendSnapshot(
+        account: UsageAccount,
+        label: String,
+        cents: Double?,
+        reset: ResetInfo?,
+        updatedAt: Date
+    ) -> [UsageSnapshot] {
+        guard let cents, cents.isFinite, cents > 0 else { return [] }
+        return [
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                account: account,
+                label: label,
+                used: .usd(cents / 100),
+                limit: nil,
+                reset: reset,
+                confidence: .exact,
+                updatedAt: updatedAt
+            )
+        ]
+    }
+
     private func normalizedPlan(_ plan: String?) -> String? {
         let trimmed = plan?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
@@ -196,6 +242,9 @@ private struct CursorUsageResponse: Decodable {
 }
 
 private struct CursorPlanUsage: Decodable {
+    let totalSpend: Double?
+    let includedSpend: Double?
+    let bonusSpend: Double?
     let autoPercentUsed: Double?
     let apiPercentUsed: Double?
     let totalPercentUsed: Double?
