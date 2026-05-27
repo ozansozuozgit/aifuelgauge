@@ -30,6 +30,7 @@ use right now without running into a limit?
   needed rows, and stale sources at a glance.
 - Local 7-day persisted sparklines for comparable quota rows so usage drift
   remains visible across app restarts without opening provider dashboards.
+- Trend captions under sparklines show 7-day peak and direction at a glance.
 - Footer controls for Refresh, Settings, and Quit.
 - Settings for editable local plan labels, warning thresholds, and refresh cadence.
 - Configurable menu bar display modes: detail, compact, or minimal.

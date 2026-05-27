@@ -603,6 +603,12 @@ private struct SourceRowView: View {
                     .frame(height: 18)
                     .padding(.leading, 16)
                     .accessibilityLabel("Recent usage trend")
+                if let trendCaption = row.trendCaption {
+                    Text(trendCaption)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary.opacity(0.72))
+                        .padding(.leading, 16)
+                }
             }
             if !row.explanation.isEmpty {
                 HStack(alignment: .top, spacing: 6) {

@@ -148,10 +148,23 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
     public let meterPercent: Double?
     public let meterLabel: String?
     public let trendPercents: [Double]
+    public let trendCaption: String?
     public let confidence: Confidence
     public let state: UsageState
 
-    public init(id: String, title: String, value: String, detail: String, explanation: String, meterPercent: Double?, meterLabel: String?, trendPercents: [Double] = [], confidence: Confidence, state: UsageState) {
+    public init(
+        id: String,
+        title: String,
+        value: String,
+        detail: String,
+        explanation: String,
+        meterPercent: Double?,
+        meterLabel: String?,
+        trendPercents: [Double] = [],
+        trendCaption: String? = nil,
+        confidence: Confidence,
+        state: UsageState
+    ) {
         self.id = id
         self.title = title
         self.value = value
@@ -160,6 +173,7 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
         self.meterPercent = meterPercent
         self.meterLabel = meterLabel
         self.trendPercents = trendPercents
+        self.trendCaption = trendCaption
         self.confidence = confidence
         self.state = state
     }
@@ -220,6 +234,7 @@ public struct DashboardViewModel: Equatable, Sendable {
                     meterPercent: snapshot.usagePercent.map { min(max($0, 0), 1) },
                     meterLabel: Self.remainingLabel(for: snapshot),
                     trendPercents: Self.trendPercents(for: snapshot, history: history),
+                    trendCaption: Self.trendCaption(for: snapshot, history: history),
                     confidence: snapshot.confidence,
                     state: snapshot.state
                 )
@@ -231,6 +246,22 @@ public struct DashboardViewModel: Equatable, Sendable {
         return (history[snapshot.id] ?? [])
             .filter(\.isFinite)
             .map { min(max($0, 0), 1) }
+    }
+
+    private static func trendCaption(for snapshot: UsageSnapshot, history: [String: [Double]]) -> String? {
+        let samples = trendPercents(for: snapshot, history: history)
+        guard samples.count >= 2 else { return nil }
+        let peak = Int(((samples.max() ?? 0) * 100).rounded())
+        let deltaPoints = Int(((samples.last! - samples.first!) * 100).rounded())
+        let direction: String
+        if abs(deltaPoints) < 1 {
+            direction = "steady"
+        } else if deltaPoints > 0 {
+            direction = "up \(deltaPoints) pts"
+        } else {
+            direction = "down \(abs(deltaPoints)) pts"
+        }
+        return "7d peak \(peak)% · \(direction)"
     }
 
     private static func gauge(for snapshot: UsageSnapshot, now: Date) -> DashboardGauge? {

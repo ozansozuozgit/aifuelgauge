@@ -295,6 +295,36 @@ final class DashboardViewModelTests: XCTestCase {
         let model = DashboardViewModel(summary: current, now: now, history: history.percentsBySnapshotID)
 
         XCTAssertEqual(model.rows.first?.trendPercents, [0.2, 0.45])
+        XCTAssertEqual(model.rows.first?.trendCaption, "7d peak 45% · up 25 pts")
+    }
+
+    func testTrendCaptionSummarizesSteadyAndFallingUsage() {
+        let now = Date(timeIntervalSince1970: 100)
+        let current = UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .openRouter,
+                source: .officialAPI,
+                label: "key",
+                used: .credits(20),
+                limit: .credits(100),
+                reset: nil,
+                confidence: .exact,
+                updatedAt: now
+            )
+        ])
+
+        var falling = UsageHistorySeries(maxSamples: 3)
+        falling.record(summary: UsageSummary(snapshots: [
+            UsageSnapshot(provider: .openRouter, source: .officialAPI, label: "key", used: .credits(60), limit: .credits(100), reset: nil, confidence: .exact, updatedAt: now)
+        ]), now: now)
+        falling.record(summary: current, now: now.addingTimeInterval(60))
+
+        let fallingModel = DashboardViewModel(summary: current, now: now, history: falling.percentsBySnapshotID)
+        XCTAssertEqual(fallingModel.rows.first?.trendCaption, "7d peak 60% · down 40 pts")
+
+        let steadyHistory = ["openRouter-key": [0.199, 0.201]]
+        let steadyModel = DashboardViewModel(summary: current, now: now, history: steadyHistory)
+        XCTAssertEqual(steadyModel.rows.first?.trendCaption, "7d peak 20% · steady")
     }
 
     func testViewModelUsesConfiguredMenuBarDisplayMode() {
