@@ -200,6 +200,8 @@ public struct DashboardViewModel: Equatable, Sendable {
             return "Exact from official OpenRouter API. Shows comparable credits with remaining capacity and refresh freshness."
         case (.codex, .localLogs, .exact):
             return "Exact from local Codex rate-limit metadata. Reads quota window, reset time, and percent without prompt text."
+        case (.codex, .localLogs, .unknown):
+            return "Last local Codex \(snapshot.label) window has expired. Waiting for a fresh Codex rate-limit event; not showing the stale percent as current usage."
         case (.claudeCode, .localLogs, .estimated):
             return "Estimated from local Claude Code usage metadata. Token totals are approximate and no prompt text is stored."
         case (.openCode, .localLogs, .unknown):

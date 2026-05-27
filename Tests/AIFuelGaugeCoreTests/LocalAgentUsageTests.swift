@@ -86,4 +86,23 @@ final class LocalAgentUsageTests: XCTestCase {
             Date(timeIntervalSince1970: 1_779_839_122.288)
         ])
     }
+
+    func testCodexExpiredWindowIsNoDataInsteadOfStaleExactPercent() throws {
+        let lines = [
+            """
+            {"timestamp":"2026-05-26T23:45:22.288Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":17.0,"window_minutes":300,"resets_at":1779853890},"secondary":{"used_percent":42.0,"window_minutes":10080,"resets_at":1780174797}}}}
+            """
+        ]
+
+        let snapshots = try CodexJSONLUsageParser(now: { Date(timeIntervalSince1970: 1779879706) }).parseRateLimits(lines: lines)
+
+        XCTAssertEqual(snapshots.map(\.label), ["5h", "Weekly"])
+        XCTAssertEqual(snapshots[0].confidence, .unknown)
+        XCTAssertNil(snapshots[0].limit)
+        XCTAssertNil(snapshots[0].usagePercent)
+        XCTAssertEqual(snapshots[0].reset, nil)
+        XCTAssertEqual(snapshots[1].confidence, .exact)
+        XCTAssertEqual(snapshots[1].used, .percent(42))
+        XCTAssertEqual(snapshots[1].reset, .rollingWindow(secondsRemaining: 295091))
+    }
 }

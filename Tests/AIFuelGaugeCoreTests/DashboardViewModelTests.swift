@@ -62,6 +62,16 @@ final class DashboardViewModelTests: XCTestCase {
                 updatedAt: now
             ),
             UsageSnapshot(
+                provider: .codex,
+                source: .localLogs,
+                label: "5h",
+                used: .percent(17),
+                limit: nil,
+                reset: nil,
+                confidence: .unknown,
+                updatedAt: Date(timeIntervalSince1970: 0)
+            ),
+            UsageSnapshot(
                 provider: .openCode,
                 source: .localLogs,
                 label: "OpenCode",
@@ -73,9 +83,10 @@ final class DashboardViewModelTests: XCTestCase {
             )
         ]), now: now)
 
-        XCTAssertEqual(model.rows.map(\.title), ["Claude Code", "OpenCode"])
-        XCTAssertEqual(model.rows.map(\.value), ["2.86B tokens", "No data"])
-        XCTAssertEqual(model.rows.map(\.detail), ["in 2.00B · out 800.00M · cache 62.39M · Estimated · local · now", "Unknown · local · now"])
+        XCTAssertEqual(model.rows.map(\.title), ["Claude Code", "Codex · 5h", "OpenCode"])
+        XCTAssertEqual(model.rows.map(\.value), ["2.86B tokens", "No data", "No data"])
+        XCTAssertEqual(model.rows.map(\.detail), ["in 2.00B · out 800.00M · cache 62.39M · Estimated · local · now", "Unknown · local · 1m ago", "Unknown · local · now"])
+        XCTAssertEqual(model.rows[1].explanation, "Last local Codex 5h window has expired. Waiting for a fresh Codex rate-limit event; not showing the stale percent as current usage.")
         XCTAssertNil(model.primaryGauge)
     }
 

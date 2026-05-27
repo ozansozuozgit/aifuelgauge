@@ -159,7 +159,19 @@ public struct CodexJSONLUsageParser {
     }
 
     private func snapshot(for rateLimit: CodexRateLimit, label: String, now generatedAt: Date, updatedAt: Date) -> UsageSnapshot {
-        let secondsRemaining = max(0, TimeInterval(rateLimit.resets_at) - generatedAt.timeIntervalSince1970)
+        let secondsRemaining = TimeInterval(rateLimit.resets_at) - generatedAt.timeIntervalSince1970
+        guard secondsRemaining > 0 else {
+            return UsageSnapshot(
+                provider: .codex,
+                source: .localLogs,
+                label: label,
+                used: .percent(rateLimit.used_percent),
+                limit: nil,
+                reset: nil,
+                confidence: .unknown,
+                updatedAt: updatedAt
+            )
+        }
         return UsageSnapshot(
             provider: .codex,
             source: .localLogs,
