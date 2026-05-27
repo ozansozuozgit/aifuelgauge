@@ -21,13 +21,13 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         NotificationBridge.requestAuthorization()
 
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = controller.model.title
         statusItem.button?.target = self
         statusItem.button?.action = #selector(togglePopover)
         self.statusItem = statusItem
+        updateStatusItem(with: controller.model)
 
         modelCancellable = controller.$model.sink { [weak self] model in
-            self?.statusItem?.button?.title = model.title
+            self?.updateStatusItem(with: model)
         }
 
         popover.behavior = .transient
@@ -51,6 +51,36 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 self?.popover.performClose(nil)
             }
+        }
+    }
+
+    private func updateStatusItem(with model: DashboardViewModel) {
+        guard let button = statusItem?.button else { return }
+        button.title = model.title
+        button.image = NSImage(systemSymbolName: statusSymbolName(for: model.state), accessibilityDescription: model.statusLabel)
+        button.image?.isTemplate = false
+        button.imagePosition = .imageLeading
+        button.contentTintColor = statusTintColor(for: model.state)
+        button.toolTip = "\(model.statusLabel) · \(model.insight)"
+    }
+
+    private func statusSymbolName(for state: UsageState) -> String {
+        switch state {
+        case .safe: return "checkmark.circle.fill"
+        case .caution: return "gauge.medium"
+        case .critical: return "exclamationmark.triangle.fill"
+        case .exhausted: return "xmark.octagon.fill"
+        case .unknown: return "questionmark.circle.fill"
+        }
+    }
+
+    private func statusTintColor(for state: UsageState) -> NSColor {
+        switch state {
+        case .safe: return NSColor.systemGreen
+        case .caution: return NSColor.systemYellow
+        case .critical: return NSColor.systemOrange
+        case .exhausted: return NSColor.systemRed
+        case .unknown: return NSColor.systemGray
         }
     }
 
