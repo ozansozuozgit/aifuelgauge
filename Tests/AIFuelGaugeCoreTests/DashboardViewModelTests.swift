@@ -195,6 +195,59 @@ final class DashboardViewModelTests: XCTestCase {
         ])
     }
 
+    func testResetTimelineShowsSoonestWindowsWithCapacity() {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .openRouter,
+                source: .officialAPI,
+                label: "main",
+                used: .credits(76),
+                limit: .credits(100),
+                reset: .rollingWindow(secondsRemaining: 7_200),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                label: "5h",
+                used: .percent(5),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 240),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "cursor-account", displayName: "Cursor", plan: "Pro"),
+                label: "Included total",
+                used: .percent(59),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3_600),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .claude,
+                source: .officialAPI,
+                label: "5h",
+                used: .percent(20),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 9_000),
+                confidence: .exact,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        XCTAssertEqual(model.resetTimeline, [
+            DashboardResetItem(id: "codex-5h", title: "Codex · 5h", detail: "reset window · 95% left", value: "4m", state: .safe),
+            DashboardResetItem(id: "cursor-cursor-account-Included total", title: "Cursor · Pro · Included total", detail: "reset window · 41% left", value: "1h", state: .safe),
+            DashboardResetItem(id: "openRouter-main", title: "OpenRouter · main", detail: "reset window · 24 credits left", value: "2h", state: .caution)
+        ])
+    }
+
     func testCodexAccountUsageReadsAsRemainingCapacity() {
         let now = Date(timeIntervalSince1970: 100)
         let model = DashboardViewModel(summary: UsageSummary(snapshots: [

@@ -408,6 +408,9 @@ private struct DashboardView: View {
             header
             InsightStrip(text: model.insight, state: model.state)
             SourceHealthStrip(items: model.sourceHealth)
+            if !model.resetTimeline.isEmpty {
+                ResetTimelineStrip(items: model.resetTimeline)
+            }
             if let gauge = model.primaryGauge {
                 PrimaryGaugeView(gauge: gauge)
             } else {
@@ -432,7 +435,7 @@ private struct DashboardView: View {
             footer
         }
         .padding(16)
-        .frame(width: 460, height: 550)
+        .frame(width: 460, height: 610)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -468,6 +471,52 @@ private struct DashboardView: View {
             FooterButton(title: "Quit", systemName: "xmark", action: actions.quit)
         }
         .padding(.top, 1)
+    }
+}
+
+private struct ResetTimelineStrip: View {
+    let items: [DashboardResetItem]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 5) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text("Next resets")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            HStack(spacing: 7) {
+                ForEach(items) { item in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                            Circle()
+                                .fill(color(for: item.state))
+                                .frame(width: 5, height: 5)
+                            Text(item.title)
+                                .font(.system(size: 10, weight: .semibold))
+                                .lineLimit(1)
+                        }
+                        Text(item.value)
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(color(for: item.state))
+                            .lineLimit(1)
+                        Text(item.detail)
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundStyle(.secondary.opacity(0.82))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 8)
+                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.64), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+            }
+        }
+        .accessibilityLabel(items.map { "\($0.title) resets in \($0.value)" }.joined(separator: ", "))
     }
 }
 

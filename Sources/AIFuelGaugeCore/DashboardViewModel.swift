@@ -255,6 +255,22 @@ public struct DashboardSourceHealthItem: Equatable, Identifiable, Sendable {
     }
 }
 
+public struct DashboardResetItem: Equatable, Identifiable, Sendable {
+    public let id: String
+    public let title: String
+    public let detail: String
+    public let value: String
+    public let state: UsageState
+
+    public init(id: String, title: String, detail: String, value: String, state: UsageState) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.value = value
+        self.state = state
+    }
+}
+
 public struct DashboardViewModel: Equatable, Sendable {
     public let title: String
     public let subtitle: String
@@ -263,6 +279,7 @@ public struct DashboardViewModel: Equatable, Sendable {
     public let statusLabel: String
     public let footerNote: String
     public let sourceHealth: [DashboardSourceHealthItem]
+    public let resetTimeline: [DashboardResetItem]
     public let primaryGauge: DashboardGauge?
     public let rows: [DashboardRow]
     public let state: UsageState
@@ -281,6 +298,7 @@ public struct DashboardViewModel: Equatable, Sendable {
         self.trustDigest = Self.trustDigest(for: summary)
         self.footerNote = Self.footerNote(for: summary)
         self.sourceHealth = Self.sourceHealth(for: summary, now: now)
+        self.resetTimeline = Self.resetTimeline(for: summary, now: now)
         self.primaryGauge = summary.primarySnapshot.flatMap { Self.gauge(for: $0, now: now) }
         let hiddenPrimaryID = summary.primarySnapshot.flatMap { Self.hidesPrimaryRow($0) ? $0.id : nil }
         self.rows = summary.snapshots
@@ -471,6 +489,50 @@ public struct DashboardViewModel: Equatable, Sendable {
             ))
         }
         return items
+    }
+
+    private static func resetTimeline(for summary: UsageSummary, now: Date) -> [DashboardResetItem] {
+        summary.snapshots
+            .compactMap { snapshot -> (UsageSnapshot, TimeInterval)? in
+                guard let reset = snapshot.reset, !snapshot.isSubscriptionOnly else { return nil }
+                return (snapshot, secondsRemaining(for: reset, now: now))
+            }
+            .sorted { lhs, rhs in
+                if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
+                return rowTitle(for: lhs.0) < rowTitle(for: rhs.0)
+            }
+            .prefix(3)
+            .map { snapshot, seconds in
+                DashboardResetItem(
+                    id: snapshot.id,
+                    title: rowTitle(for: snapshot),
+                    detail: resetTimelineDetail(for: snapshot, seconds: seconds, now: now),
+                    value: resetTimelineValue(seconds: seconds),
+                    state: snapshot.state
+                )
+            }
+    }
+
+    private static func resetTimelineDetail(for snapshot: UsageSnapshot, seconds: TimeInterval, now: Date) -> String {
+        let capacity = prefersRemainingDisplay(snapshot)
+            ? remainingLabel(for: snapshot)
+            : remainingLabel(for: snapshot) ?? usedLabel(for: snapshot)
+        let resolvedResetDate = snapshot.reset.map { resetDate(for: $0, now: now) }
+        var parts: [String] = []
+        if seconds >= 24 * 3600, let resolvedResetDate {
+            parts.append(calendarResetLabel(for: resolvedResetDate))
+        } else if seconds <= 60 {
+            parts.append("ready now")
+        } else {
+            parts.append("reset window")
+        }
+        if let capacity { parts.append(capacity) }
+        return parts.joined(separator: " · ")
+    }
+
+    private static func resetTimelineValue(seconds: TimeInterval) -> String {
+        if seconds <= 60 { return "now" }
+        return durationLabel(seconds: seconds, includeMinutes: seconds < 24 * 3600)
     }
 
     private static func rowTitle(for snapshot: UsageSnapshot) -> String {

@@ -9,6 +9,7 @@ use right now without running into a limit?
 
 - Native macOS menu bar executable using AppKit + SwiftUI.
 - State-colored menu bar symbol for at-a-glance safe/watch/blocked status.
+- Next-reset timeline for the soonest active provider windows.
 - Core usage model with explicit confidence: exact, estimated, unknown.
 - OpenRouter connector for:
   - `GET /api/v1/key`
