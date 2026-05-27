@@ -44,6 +44,20 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
     }
 }
 
+public struct DashboardSourceHealthItem: Equatable, Identifiable, Sendable {
+    public let id: String
+    public let title: String
+    public let value: String
+    public let state: UsageState
+
+    public init(id: String, title: String, value: String, state: UsageState) {
+        self.id = id
+        self.title = title
+        self.value = value
+        self.state = state
+    }
+}
+
 public struct DashboardViewModel: Equatable, Sendable {
     public let title: String
     public let subtitle: String
@@ -51,6 +65,7 @@ public struct DashboardViewModel: Equatable, Sendable {
     public let trustDigest: String
     public let statusLabel: String
     public let footerNote: String
+    public let sourceHealth: [DashboardSourceHealthItem]
     public let primaryGauge: DashboardGauge?
     public let rows: [DashboardRow]
     public let state: UsageState
@@ -63,6 +78,7 @@ public struct DashboardViewModel: Equatable, Sendable {
         self.insight = Self.insight(for: summary, now: now)
         self.trustDigest = Self.trustDigest(for: summary)
         self.footerNote = Self.footerNote(for: summary)
+        self.sourceHealth = Self.sourceHealth(for: summary, now: now)
         self.primaryGauge = summary.primarySnapshot.flatMap { Self.gauge(for: $0, now: now) }
         let hiddenPrimaryID = summary.primarySnapshot.flatMap { Self.hidesPrimaryRow($0) ? $0.id : nil }
         self.rows = summary.snapshots
@@ -180,6 +196,54 @@ public struct DashboardViewModel: Equatable, Sendable {
         case (false, true): return "Local fallback"
         case (false, false): return "No sources"
         }
+    }
+
+    private static func sourceHealth(for summary: UsageSummary, now: Date) -> [DashboardSourceHealthItem] {
+        guard !summary.snapshots.isEmpty else {
+            return [DashboardSourceHealthItem(id: "none", title: "Sources", value: "None", state: .unknown)]
+        }
+
+        let liveCount = summary.snapshots.filter {
+            ($0.source == .officialAPI || $0.source == .experimentalWebSession) && $0.confidence == .exact
+        }.count
+        let fallbackCount = summary.snapshots.filter { $0.source == .localLogs }.count
+        let setupCount = summary.snapshots.filter { $0.confidence == .unknown || $0.isSubscriptionOnly }.count
+        let staleCount = summary.snapshots.filter { now.timeIntervalSince($0.updatedAt) > 600 }.count
+
+        var items: [DashboardSourceHealthItem] = []
+        if liveCount > 0 {
+            items.append(DashboardSourceHealthItem(
+                id: "live",
+                title: "Live",
+                value: "\(liveCount)",
+                state: .safe
+            ))
+        }
+        if fallbackCount > 0 {
+            items.append(DashboardSourceHealthItem(
+                id: "fallback",
+                title: "Fallback",
+                value: "\(fallbackCount)",
+                state: liveCount > 0 ? .safe : .unknown
+            ))
+        }
+        if setupCount > 0 {
+            items.append(DashboardSourceHealthItem(
+                id: "setup",
+                title: "Setup",
+                value: "\(setupCount)",
+                state: .unknown
+            ))
+        }
+        if staleCount > 0 {
+            items.append(DashboardSourceHealthItem(
+                id: "stale",
+                title: "Stale",
+                value: "\(staleCount)",
+                state: .caution
+            ))
+        }
+        return items
     }
 
     private static func rowTitle(for snapshot: UsageSnapshot) -> String {

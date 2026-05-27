@@ -35,6 +35,10 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.insight, "Start watching OpenRouter · main: 24% left.")
         XCTAssertEqual(model.trustDigest, "1 exact · 1 estimated")
         XCTAssertEqual(model.footerNote, "Account live · local fallback")
+        XCTAssertEqual(model.sourceHealth, [
+            DashboardSourceHealthItem(id: "live", title: "Live", value: "1", state: .safe),
+            DashboardSourceHealthItem(id: "fallback", title: "Fallback", value: "1", state: .safe)
+        ])
         XCTAssertEqual(model.primaryGauge?.title, "OpenRouter · main")
         XCTAssertEqual(model.primaryGauge?.value, "76%")
         XCTAssertEqual(model.primaryGauge?.subtitle, "Exact · resets in 1h")
@@ -221,5 +225,39 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.rows.map(\.value), ["54% left"])
         XCTAssertEqual(model.rows[0].detail, "46% used · resets Sat 7 PM (3d) · Exact · account · now")
         XCTAssertEqual(model.rows[0].explanation, "")
+    }
+
+    func testSourceHealthFlagsFallbackSetupAndStaleSources() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "cursor-account", displayName: "Cursor", plan: "Pro"),
+                label: "Included total",
+                used: .percent(59),
+                limit: .percent(100),
+                reset: nil,
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .openCode,
+                source: .localLogs,
+                label: "OpenCode",
+                used: .tokens(input: 0, output: 0, cacheRead: 0, cacheWrite: 0),
+                limit: nil,
+                reset: nil,
+                confidence: .unknown,
+                updatedAt: Date(timeIntervalSince1970: 100)
+            )
+        ]), now: now)
+
+        XCTAssertEqual(model.sourceHealth, [
+            DashboardSourceHealthItem(id: "live", title: "Live", value: "1", state: .safe),
+            DashboardSourceHealthItem(id: "fallback", title: "Fallback", value: "1", state: .safe),
+            DashboardSourceHealthItem(id: "setup", title: "Setup", value: "1", state: .unknown),
+            DashboardSourceHealthItem(id: "stale", title: "Stale", value: "1", state: .caution)
+        ])
     }
 }

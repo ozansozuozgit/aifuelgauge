@@ -31,7 +31,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 460, height: 530)
+        popover.contentSize = NSSize(width: 460, height: 550)
         popover.contentViewController = NSHostingController(
             rootView: DashboardView(
                 controller: controller,
@@ -297,6 +297,7 @@ private struct DashboardView: View {
         VStack(alignment: .leading, spacing: 12) {
             header
             InsightStrip(text: model.insight, state: model.state)
+            SourceHealthStrip(items: model.sourceHealth)
             if let gauge = model.primaryGauge {
                 PrimaryGaugeView(gauge: gauge)
             } else {
@@ -315,13 +316,13 @@ private struct DashboardView: View {
                         }
                     }
                 }
-                .frame(maxHeight: 250)
+                .frame(maxHeight: 220)
                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             footer
         }
         .padding(16)
-        .frame(width: 460, height: 530)
+        .frame(width: 460, height: 550)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -356,6 +357,34 @@ private struct DashboardView: View {
             FooterButton(title: "Quit", systemName: "xmark", action: actions.quit)
         }
         .padding(.top, 1)
+    }
+}
+
+private struct SourceHealthStrip: View {
+    let items: [DashboardSourceHealthItem]
+
+    var body: some View {
+        HStack(spacing: 7) {
+            ForEach(items) { item in
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(color(for: item.state))
+                        .frame(width: 5, height: 5)
+                    Text(item.title)
+                        .lineLimit(1)
+                    Text(item.value)
+                        .monospacedDigit()
+                        .foregroundStyle(.primary.opacity(0.82))
+                }
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.64), in: Capsule())
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityLabel(items.map { "\($0.title) \($0.value)" }.joined(separator: ", "))
     }
 }
 

@@ -26,6 +26,8 @@ use right now without running into a limit?
 - Polished popover with a primary usage gauge, subscription plan labels,
   exact/estimated/unknown reliability labels, freshness text, and compact number
   formatting.
+- Source-health strip showing live account connectors, local fallbacks, setup
+  needed rows, and stale sources at a glance.
 - Footer controls for Refresh, Settings, and Quit.
 - Settings for editable local plan labels, warning thresholds, and refresh cadence.
 - Paste-friendly macOS Keychain storage for an OpenRouter API key.
@@ -122,7 +124,7 @@ Do not pretend estimates are exact. The app should always distinguish:
 1. Add FSEvents/polling refresh for Claude/Codex/Cursor local state.
 2. Add OpenAI usage/cost connector.
 3. Replace OpenCode placeholder with SQLite-backed usage parsing.
-4. Add 7-day history bars and per-model cost breakdowns.
+4. Add 7-day history bars and menu bar sparklines.
 5. Add WidgetKit widgets for the active provider and tightest quota.
 6. Add Homebrew cask and signed/notarized release builds.
 7. Add a proper `.app` bundle icon.
