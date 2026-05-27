@@ -341,7 +341,22 @@ public struct CursorAccountState: Equatable, Sendable {
     public let membershipType: String?
     public let subscriptionStatus: String?
     public let email: String?
+    public let accessToken: String?
     public let updatedAt: Date
+
+    public init(
+        membershipType: String?,
+        subscriptionStatus: String?,
+        email: String?,
+        accessToken: String?,
+        updatedAt: Date
+    ) {
+        self.membershipType = membershipType
+        self.subscriptionStatus = subscriptionStatus
+        self.email = email
+        self.accessToken = accessToken
+        self.updatedAt = updatedAt
+    }
 
     public var displayPlan: String? {
         guard let membershipType else { return nil }
@@ -407,9 +422,10 @@ public struct CursorAccountStateReader {
             membershipType: values["cursorAuth/stripeMembershipType"],
             subscriptionStatus: values["cursorAuth/stripeSubscriptionStatus"],
             email: values["cursorAuth/cachedEmail"],
+            accessToken: values["cursorAuth/accessToken"],
             updatedAt: updatedAt
         )
-        if state.membershipType == nil, state.subscriptionStatus == nil, state.email == nil { return nil }
+        if state.membershipType == nil, state.subscriptionStatus == nil, state.email == nil, state.accessToken == nil { return nil }
         return state
     }
 
@@ -417,7 +433,8 @@ public struct CursorAccountStateReader {
         let keys = [
             "cursorAuth/stripeMembershipType",
             "cursorAuth/stripeSubscriptionStatus",
-            "cursorAuth/cachedEmail"
+            "cursorAuth/cachedEmail",
+            "cursorAuth/accessToken"
         ]
         var database: OpaquePointer?
         let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX

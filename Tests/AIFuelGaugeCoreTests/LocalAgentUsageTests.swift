@@ -46,7 +46,8 @@ final class LocalAgentUsageTests: XCTestCase {
         try Self.createCursorStateDatabase(at: dbURL, values: [
             "cursorAuth/stripeMembershipType": "pro",
             "cursorAuth/stripeSubscriptionStatus": "active",
-            "cursorAuth/cachedEmail": "user@example.com"
+            "cursorAuth/cachedEmail": "user@example.com",
+            "cursorAuth/accessToken": "local-access-token"
         ])
 
         let state = try XCTUnwrap(CursorAccountStateReader(cursorDirectory: cursorDir).read())
@@ -55,6 +56,7 @@ final class LocalAgentUsageTests: XCTestCase {
         XCTAssertEqual(state.displayPlan, "Pro")
         XCTAssertEqual(state.displayStatus, "active")
         XCTAssertEqual(state.email, "user@example.com")
+        XCTAssertEqual(state.accessToken, "local-access-token")
     }
 
     func testParsesLatestCodexRateLimitTokenCount() throws {

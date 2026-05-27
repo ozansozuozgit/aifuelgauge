@@ -225,6 +225,19 @@ private final class DashboardController: ObservableObject {
                 warnings.append(hasLocalCodexFallback ? "Codex account unavailable, using local fallback" : "Codex account unavailable")
             }
 
+            do {
+                let cursorSnapshots = try await CursorUsageConnector(planPreferences: AppPreferences.localPlanPreferences()).fetchUsage()
+                if !cursorSnapshots.isEmpty {
+                    snapshots.removeAll { $0.provider == .cursor && $0.source == .localLogs }
+                    snapshots.append(contentsOf: cursorSnapshots)
+                }
+            } catch {
+                let hasLocalCursorFallback = snapshots.contains { $0.provider == .cursor && $0.source == .localLogs }
+                if hasLocalCursorFallback {
+                    warnings.append("Cursor usage unavailable, using subscription fallback")
+                }
+            }
+
             if let openRouterKey = KeychainStore.readOpenRouterKey(), !openRouterKey.isEmpty {
                 let connector = OpenRouterConnector()
                 do {

@@ -14,12 +14,14 @@ use right now without running into a limit?
   - `GET /api/v1/credits`
 - Codex account connector using the local Codex OAuth file at `~/.codex/auth.json`
   and the Codex account usage endpoint.
+- Cursor account connector using local Cursor auth state and the current-period
+  usage endpoint.
 - Local coding-agent scaffolding:
   - Claude Code JSONL token aggregation from `~/.claude/projects`
   - Codex JSONL rate-limit parsing from `~/.codex/sessions` as fallback
   - OpenCode local database detection at `~/.local/share/opencode/opencode.db`
   - Cursor app detection at `~/Library/Application Support/Cursor`
-  - Cursor plan/status parsing from `User/globalStorage/state.vscdb`
+  - Cursor plan/status/auth parsing from `User/globalStorage/state.vscdb`
 - Compact dashboard view model and threshold logic.
 - Polished popover with a primary usage gauge, subscription plan labels,
   exact/estimated/unknown reliability labels, freshness text, and compact number
@@ -101,9 +103,10 @@ make package
   appears as a readable model row, for example `Spark model · 5h`.
 - Claude Code uses your editable local plan label. Token totals are estimates
   from local usage metadata, not hard provider limits.
-- Cursor reads local Cursor account state for membership type and subscription
-  status when available. Cursor quota usage is not connected yet, so the row is
-  a subscription label, not a fake limit.
+- Cursor reads local Cursor account state for membership type, subscription
+  status, and auth. When the account endpoint is reachable, it shows included
+  total, API usage, and auto usage. If live usage fails, it falls back to a
+  subscription label instead of showing a fake limit.
 - OpenRouter values are exact when an API key is saved in Settings.
 
 ## Product principle
@@ -116,12 +119,10 @@ Do not pretend estimates are exact. The app should always distinguish:
 
 ## Next useful build slices
 
-1. Add a real Cursor usage connector if Cursor exposes quota metadata locally or
-   via account APIs.
-2. Add FSEvents/polling refresh for Claude/Codex/Cursor local state.
-3. Add OpenAI usage/cost connector.
-4. Replace OpenCode placeholder with SQLite-backed usage parsing.
-5. Add 7-day history bars and per-model cost breakdowns.
-6. Add WidgetKit widgets for the active provider and tightest quota.
-7. Add Homebrew cask and signed/notarized release builds.
-8. Add a proper `.app` bundle icon.
+1. Add FSEvents/polling refresh for Claude/Codex/Cursor local state.
+2. Add OpenAI usage/cost connector.
+3. Replace OpenCode placeholder with SQLite-backed usage parsing.
+4. Add 7-day history bars and per-model cost breakdowns.
+5. Add WidgetKit widgets for the active provider and tightest quota.
+6. Add Homebrew cask and signed/notarized release builds.
+7. Add a proper `.app` bundle icon.

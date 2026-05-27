@@ -268,7 +268,7 @@ public struct DashboardViewModel: Equatable, Sendable {
         if snapshot.isSubscriptionOnly {
             switch snapshot.provider {
             case .cursor:
-                return "Cursor is detected locally. Plan is labeled from your subscription; usage limits are not connected yet."
+                return "Cursor is detected locally. The app could not reach live usage, so this is only a subscription fallback."
             case .claudeCode, .claude:
                 return "Plan label is shown separately from usage because Claude Code local logs do not expose a hard subscription quota."
             default:
@@ -280,6 +280,8 @@ public struct DashboardViewModel: Equatable, Sendable {
             return "Exact from official OpenRouter API. Shows comparable credits with remaining capacity and refresh freshness."
         case (.codex, .experimentalWebSession, .exact):
             return ""
+        case (.cursor, .experimentalWebSession, .exact):
+            return "Exact from Cursor account usage. Uses the local Cursor auth token; no prompt text is read."
         case (.codex, .localLogs, .exact):
             return "Fallback from local Codex session metadata. Useful when the account endpoint is unavailable, but it can lag behind Codex."
         case (.codex, .localLogs, .unknown):
