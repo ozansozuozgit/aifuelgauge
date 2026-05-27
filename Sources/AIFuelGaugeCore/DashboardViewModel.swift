@@ -369,6 +369,58 @@ public enum DashboardDiagnosticsReport {
     }
 }
 
+public enum DashboardStatusSnapshot {
+    public static func make(model: DashboardViewModel, generatedAt: Date = Date()) -> String {
+        var lines: [String] = [
+            "AI Fuel Gauge Status",
+            "Generated: \(iso8601(generatedAt))",
+            "Menu: \(model.title)",
+            "State: \(model.statusLabel)",
+            "Insight: \(model.insight)",
+            "Sources: \(model.footerNote) · \(model.trustDigest)"
+        ]
+
+        if let gauge = model.primaryGauge {
+            lines.append("Primary: \(gauge.title) · \(gauge.value) · \(gauge.subtitle)")
+        }
+
+        if !model.resetTimeline.isEmpty {
+            lines.append("")
+            lines.append("Next resets:")
+            for item in model.resetTimeline {
+                lines.append("- \(item.title): \(item.value) · \(item.detail)")
+            }
+        }
+
+        if !model.rows.isEmpty {
+            lines.append("")
+            lines.append("Lanes:")
+            for row in model.rows.prefix(6) {
+                let meter = row.meterLabel.map { " · \($0)" } ?? ""
+                lines.append("- \(row.title): \(row.value) · \(row.detail)\(meter)")
+            }
+        }
+
+        if !model.setupGuidance.isEmpty {
+            lines.append("")
+            lines.append("Setup:")
+            for item in model.setupGuidance {
+                lines.append("- \(item.title): \(item.status) · \(item.action)")
+            }
+        }
+
+        lines.append("")
+        lines.append("Privacy: status includes source names, percentages, and timing only. It does not include prompts, API keys, auth tokens, or raw provider responses.")
+        return lines.joined(separator: "\n")
+    }
+
+    private static func iso8601(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+}
+
 public struct DashboardRow: Equatable, Identifiable, Sendable {
     public let id: String
     public let title: String

@@ -484,6 +484,44 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertFalse(report.localizedCaseInsensitiveContains("sk-"))
     }
 
+    func testStatusSnapshotIsCompactAndSanitized() {
+        let generatedAt = Date(timeIntervalSince1970: 200)
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                label: "5h",
+                used: .percent(20),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3600),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .cursor,
+                source: .localLogs,
+                account: UsageAccount(identifier: "cursor-local", displayName: "Cursor", plan: "Pro"),
+                label: "Subscription active",
+                used: .requests(0),
+                limit: nil,
+                reset: nil,
+                confidence: .unknown,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        let snapshot = DashboardStatusSnapshot.make(model: model, generatedAt: generatedAt)
+
+        XCTAssertTrue(snapshot.contains("AI Fuel Gauge Status"))
+        XCTAssertTrue(snapshot.contains("Menu: Codex 5h 80% left · 1h"))
+        XCTAssertTrue(snapshot.contains("Primary: Codex · 5h · 80% · Exact · left · resets in 1h"))
+        XCTAssertTrue(snapshot.contains("Cursor: Plan found, usage missing · Open Cursor while signed in, then refresh for live account usage."))
+        XCTAssertTrue(snapshot.contains("Privacy: status includes source names, percentages, and timing only."))
+        XCTAssertFalse(snapshot.localizedCaseInsensitiveContains("token:"))
+        XCTAssertFalse(snapshot.localizedCaseInsensitiveContains("sk-"))
+    }
+
     func testViewModelUsesConfiguredMenuBarDisplayMode() {
         let now = Date(timeIntervalSince1970: 100)
         let summary = UsageSummary(snapshots: [

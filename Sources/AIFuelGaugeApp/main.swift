@@ -43,6 +43,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
                         guard let dashboard = controller?.historyDashboard() else { return }
                         self?.historyWindowController.show(dashboard: dashboard)
                     },
+                    copyStatus: { [weak controller] in controller?.copyStatusSnapshot() },
                     copyDiagnostics: { [weak controller] in controller?.copyDiagnostics() },
                     quit: { NSApp.terminate(nil) }
                 )
@@ -356,6 +357,12 @@ private final class DashboardController: ObservableObject {
         NSPasteboard.general.setString(report, forType: .string)
     }
 
+    func copyStatusSnapshot() {
+        let snapshot = DashboardStatusSnapshot.make(model: model)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(snapshot, forType: .string)
+    }
+
     func historyDashboard() -> UsageHistoryDashboard {
         UsageHistoryDashboard(history: history, summary: summary ?? UsageSummary(snapshots: []))
     }
@@ -468,6 +475,7 @@ private struct DashboardActions {
     let refresh: () -> Void
     let settings: () -> Void
     let history: () -> Void
+    let copyStatus: () -> Void
     let copyDiagnostics: () -> Void
     let quit: () -> Void
 }
@@ -546,6 +554,7 @@ private struct DashboardView: View {
             FooterButton(title: "Refresh", systemName: "arrow.clockwise", action: actions.refresh)
             FooterButton(title: "Settings", systemName: "slider.horizontal.3", action: actions.settings)
             FooterButton(title: "History", systemName: "chart.line.uptrend.xyaxis", action: actions.history)
+            FooterButton(title: "Status", systemName: "doc.on.doc", action: actions.copyStatus)
             FooterButton(title: "Report", systemName: "doc.on.clipboard", action: actions.copyDiagnostics)
             FooterButton(title: "Quit", systemName: "xmark", action: actions.quit)
         }
@@ -937,7 +946,7 @@ private struct FooterButton: View {
                 Text(title)
                     .font(.system(size: 10, weight: .semibold))
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 7)
             .padding(.vertical, 5)
             .background(.quaternary, in: Capsule())
         }
