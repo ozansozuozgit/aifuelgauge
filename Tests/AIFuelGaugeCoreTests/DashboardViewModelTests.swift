@@ -327,6 +327,45 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(steadyModel.rows.first?.trendCaption, "7d peak 20% · steady")
     }
 
+    func testDiagnosticsReportIsCopyableAndSanitized() {
+        let generatedAt = Date(timeIntervalSince1970: 200)
+        let updatedAt = Date(timeIntervalSince1970: 100)
+        let summary = UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "cursor-account", displayName: "Cursor", plan: "Pro"),
+                label: "API usage",
+                used: .percent(100),
+                limit: .percent(100),
+                reset: nil,
+                confidence: .exact,
+                updatedAt: updatedAt
+            )
+        ])
+        let history = UsageHistorySeries(maxSamples: 3, samplesBySnapshotID: [
+            "cursor-cursor-account-API usage": [
+                UsageHistorySample(recordedAt: updatedAt, percent: 1)
+            ]
+        ])
+
+        let report = DashboardDiagnosticsReport.make(
+            summary: summary,
+            history: history,
+            historyPath: "/tmp/usage-history.json",
+            refreshError: "Cursor usage unavailable, using subscription fallback",
+            generatedAt: generatedAt
+        )
+
+        XCTAssertTrue(report.contains("AI Fuel Gauge Diagnostics"))
+        XCTAssertTrue(report.contains("History path: /tmp/usage-history.json"))
+        XCTAssertTrue(report.contains("Cursor / Cursor · Pro / API usage: 100% used, exhausted, exact, experimentalWebSession"))
+        XCTAssertTrue(report.contains("cursor-cursor-account-API usage: 1 samples, latest 100%"))
+        XCTAssertTrue(report.contains("Privacy: diagnostics include source names, status, timestamps, and percentages only."))
+        XCTAssertFalse(report.localizedCaseInsensitiveContains("token:"))
+        XCTAssertFalse(report.localizedCaseInsensitiveContains("sk-"))
+    }
+
     func testViewModelUsesConfiguredMenuBarDisplayMode() {
         let now = Date(timeIntervalSince1970: 100)
         let summary = UsageSummary(snapshots: [

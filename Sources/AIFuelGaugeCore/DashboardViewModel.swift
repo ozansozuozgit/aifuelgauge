@@ -139,6 +139,68 @@ public struct UsageHistoryFileStore {
     }
 }
 
+public enum DashboardDiagnosticsReport {
+    public static func make(
+        summary: UsageSummary,
+        history: UsageHistorySeries,
+        historyPath: String,
+        refreshError: String?,
+        generatedAt: Date = Date()
+    ) -> String {
+        var lines: [String] = [
+            "AI Fuel Gauge Diagnostics",
+            "Generated: \(iso8601(generatedAt))",
+            "Overall state: \(summary.overallState.rawValue)",
+            "Menu bar title: \(summary.menuBarTitle)",
+            "History path: \(historyPath)",
+            "History lanes: \(history.samplesBySnapshotID.count)",
+            "Refresh warning: \(refreshError?.isEmpty == false ? refreshError! : "none")",
+            "",
+            "Sources:"
+        ]
+
+        if summary.snapshots.isEmpty {
+            lines.append("- none")
+        } else {
+            for snapshot in summary.snapshots.sorted(by: diagnosticOrder) {
+                let percent = snapshot.usagePercent.map { "\(Int(($0 * 100).rounded()))% used" } ?? "not comparable"
+                let account = snapshot.account?.displayTitle ?? snapshot.provider.displayName
+                let reset = snapshot.reset?.compactTitle.map { "reset \($0)" } ?? "no reset"
+                lines.append("- \(snapshot.provider.displayName) / \(account) / \(snapshot.label): \(percent), \(snapshot.state.rawValue), \(snapshot.confidence.rawValue), \(snapshot.source.rawValue), \(reset), updated \(iso8601(snapshot.updatedAt))")
+            }
+        }
+
+        lines.append("")
+        lines.append("History samples:")
+        if history.samplesBySnapshotID.isEmpty {
+            lines.append("- none")
+        } else {
+            for key in history.samplesBySnapshotID.keys.sorted() {
+                let samples = history.samplesBySnapshotID[key] ?? []
+                let latest = samples.last.map { "\(Int(($0.percent * 100).rounded()))% at \(iso8601($0.recordedAt))" } ?? "none"
+                lines.append("- \(key): \(samples.count) samples, latest \(latest)")
+            }
+        }
+
+        lines.append("")
+        lines.append("Privacy: diagnostics include source names, status, timestamps, and percentages only. They do not include prompts, API keys, auth tokens, or raw provider responses.")
+        return lines.joined(separator: "\n")
+    }
+
+    private static func diagnosticOrder(_ lhs: UsageSnapshot, _ rhs: UsageSnapshot) -> Bool {
+        if lhs.provider.displayName != rhs.provider.displayName {
+            return lhs.provider.displayName < rhs.provider.displayName
+        }
+        return lhs.label < rhs.label
+    }
+
+    private static func iso8601(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+}
+
 public struct DashboardRow: Equatable, Identifiable, Sendable {
     public let id: String
     public let title: String

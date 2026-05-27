@@ -38,6 +38,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
                 actions: DashboardActions(
                     refresh: { [weak controller] in controller?.refresh() },
                     settings: { [weak self] in self?.settingsWindowController.show() },
+                    copyDiagnostics: { [weak controller] in controller?.copyDiagnostics() },
                     quit: { NSApp.terminate(nil) }
                 )
             )
@@ -247,6 +248,17 @@ private final class DashboardController: ObservableObject {
         rebuildModel()
     }
 
+    func copyDiagnostics() {
+        let report = DashboardDiagnosticsReport.make(
+            summary: summary ?? UsageSummary(snapshots: []),
+            history: history,
+            historyPath: AppStoragePaths.historyURL.path,
+            refreshError: refreshError
+        )
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(report, forType: .string)
+    }
+
     private func rebuildModel() {
         let currentSummary = summary ?? UsageSummary(snapshots: [])
         model = DashboardViewModel(
@@ -351,6 +363,7 @@ private enum NotificationBridge {
 private struct DashboardActions {
     let refresh: () -> Void
     let settings: () -> Void
+    let copyDiagnostics: () -> Void
     let quit: () -> Void
 }
 
@@ -421,6 +434,7 @@ private struct DashboardView: View {
             Spacer(minLength: 8)
             FooterButton(title: "Refresh", systemName: "arrow.clockwise", action: actions.refresh)
             FooterButton(title: "Settings", systemName: "slider.horizontal.3", action: actions.settings)
+            FooterButton(title: "Report", systemName: "doc.on.clipboard", action: actions.copyDiagnostics)
             FooterButton(title: "Quit", systemName: "xmark", action: actions.quit)
         }
         .padding(.top, 1)

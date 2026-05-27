@@ -35,6 +35,8 @@ use right now without running into a limit?
 - Settings for editable local plan labels, warning thresholds, and refresh cadence.
 - Configurable menu bar display modes: detail, compact, or minimal.
 - Data controls to reveal or clear the local usage-history file.
+- Copyable diagnostics report for source status, history counts, and current
+  refresh warnings without secrets.
 - Paste-friendly macOS Keychain storage for an OpenRouter API key.
 - Background refresh so opening the menu item does not block on large local logs.
 - Optional live OpenRouter polling when a key is saved in Settings.
