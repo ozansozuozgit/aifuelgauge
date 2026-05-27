@@ -357,6 +357,10 @@ final class DashboardViewModelTests: XCTestCase {
             "openRouter-key": [0.2, 0.3]
         ])
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+
+        try store.clear()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
     }
 
     func testUsageHistoryPrunesSamplesOlderThanRetention() {

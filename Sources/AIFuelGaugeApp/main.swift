@@ -160,6 +160,10 @@ private enum AppStoragePaths {
     }
 }
 
+private extension Notification.Name {
+    static let aiFuelGaugeHistoryCleared = Notification.Name("aiFuelGaugeHistoryCleared")
+}
+
 @MainActor
 private final class DashboardController: ObservableObject {
     @Published private(set) var model: DashboardViewModel
@@ -168,6 +172,7 @@ private final class DashboardController: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var autoRefreshCancellable: AnyCancellable?
     private var preferenceCancellable: AnyCancellable?
+    private var historyCancellable: AnyCancellable?
     private var summary: UsageSummary?
     private let historyStore = UsageHistoryFileStore(fileURL: AppStoragePaths.historyURL)
     private var history: UsageHistorySeries
@@ -184,6 +189,7 @@ private final class DashboardController: ObservableObject {
         )
         startAutoRefresh()
         observePreferences()
+        observeHistoryChanges()
         refresh()
     }
 
@@ -225,6 +231,20 @@ private final class DashboardController: ObservableObject {
                     self?.rebuildModel()
                 }
             }
+    }
+
+    private func observeHistoryChanges() {
+        historyCancellable = NotificationCenter.default.publisher(for: .aiFuelGaugeHistoryCleared)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    self?.clearHistory()
+                }
+            }
+    }
+
+    private func clearHistory() {
+        history = UsageHistorySeries()
+        rebuildModel()
     }
 
     private func rebuildModel() {
@@ -713,7 +733,7 @@ private final class SettingsWindowController {
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 540, height: 700),
+            contentRect: NSRect(x: 0, y: 0, width: 540, height: 760),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -731,6 +751,7 @@ private final class SettingsWindowController {
 private struct SettingsView: View {
     @State private var openRouterKey: String
     @State private var message: String = "Stored in macOS Keychain. Not synced."
+    @State private var historyMessage: String = "History stores only lane IDs, timestamps, and percentages."
     @State private var detectedCursorPlan: String
     @State private var detectedCursorStatus: String
     @AppStorage(AppPreferences.claudeCodePlanLabelKey) private var claudeCodePlanLabel = "Free"
@@ -831,6 +852,24 @@ private struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            SettingsPanel {
+                Text("Data & privacy")
+                    .font(.system(size: 11, weight: .semibold))
+                HStack(spacing: 8) {
+                    Button("Reveal history") {
+                        revealHistory()
+                    }
+                    Button("Clear history") {
+                        clearHistory()
+                    }
+                    Spacer()
+                }
+                Text(historyMessage)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
             Spacer()
 
             VStack(spacing: 8) {
@@ -863,7 +902,7 @@ private struct SettingsView: View {
             }
         }
         .padding(18)
-        .frame(width: 540, height: 700)
+        .frame(width: 540, height: 760)
     }
 
     private func pasteOpenRouterKey() {
@@ -873,6 +912,32 @@ private struct SettingsView: View {
         }
         openRouterKey = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
         message = "Pasted from clipboard. Save to store it in Keychain."
+    }
+
+    private func revealHistory() {
+        let historyURL = AppStoragePaths.historyURL
+        if FileManager.default.fileExists(atPath: historyURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([historyURL])
+            historyMessage = "Revealed usage-history.json in Finder."
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(at: historyURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            NSWorkspace.shared.open(historyURL.deletingLastPathComponent())
+            historyMessage = "History file has not been created yet. Opened its folder."
+        } catch {
+            historyMessage = "Could not open history folder: \(error.localizedDescription)"
+        }
+    }
+
+    private func clearHistory() {
+        do {
+            try UsageHistoryFileStore(fileURL: AppStoragePaths.historyURL).clear()
+            NotificationCenter.default.post(name: .aiFuelGaugeHistoryCleared, object: nil)
+            historyMessage = "Local usage history cleared."
+        } catch {
+            historyMessage = "Could not clear history: \(error.localizedDescription)"
+        }
     }
 }
 

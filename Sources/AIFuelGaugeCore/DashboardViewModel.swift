@@ -132,6 +132,11 @@ public struct UsageHistoryFileStore {
         let data = try encoder.encode(normalized)
         try data.write(to: fileURL, options: .atomic)
     }
+
+    public func clear() throws {
+        guard fileManager.fileExists(atPath: fileURL.path) else { return }
+        try fileManager.removeItem(at: fileURL)
+    }
 }
 
 public struct DashboardRow: Equatable, Identifiable, Sendable {
