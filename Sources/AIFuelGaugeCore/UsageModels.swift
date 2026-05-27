@@ -330,9 +330,16 @@ public struct UsageAlertPlanner: Equatable, Sendable {
                   let previousPercent = previousByID[snapshot.id]?.usagePercent else {
                 return []
             }
-            return tracker.crossedThresholds(previous: previousPercent, current: currentPercent).map { threshold in
+            var events = tracker.crossedThresholds(previous: previousPercent, current: currentPercent).map { threshold in
                 quotaAlert(for: snapshot, currentPercent: currentPercent, threshold: threshold)
             }
+            if let previousSnapshot = previousByID[snapshot.id],
+               previousSnapshot.state >= .caution,
+               snapshot.state == .safe,
+               currentPercent < previousPercent {
+                events.append(resetReadyAlert(for: snapshot, currentPercent: currentPercent))
+            }
+            return events
         }
     }
 
@@ -366,6 +373,19 @@ public struct UsageAlertPlanner: Equatable, Sendable {
             thresholdPercent: threshold,
             provider: snapshot.provider,
             state: snapshot.state
+        )
+    }
+
+    private func resetReadyAlert(for snapshot: UsageSnapshot, currentPercent: Double) -> UsageAlertEvent {
+        let remaining = max(0, Int(((1 - currentPercent) * 100).rounded()))
+        let reset = snapshot.reset?.compactTitle.map { " · next reset in \($0)" } ?? ""
+        return UsageAlertEvent(
+            identifier: "\(snapshot.id)-reset-ready",
+            title: "\(displayTitle(for: snapshot)) is ready again",
+            body: "\(remaining)% left\(reset)",
+            thresholdPercent: nil,
+            provider: snapshot.provider,
+            state: .safe
         )
     }
 

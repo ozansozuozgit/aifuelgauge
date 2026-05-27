@@ -16,6 +16,8 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        AppPreferences.registerDefaults()
+        installMainMenu()
         NotificationBridge.requestAuthorization()
 
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -51,6 +53,29 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func installMainMenu() {
+        let mainMenu = NSMenu()
+
+        let appItem = NSMenuItem()
+        mainMenu.addItem(appItem)
+        let appMenu = NSMenu()
+        appMenu.addItem(NSMenuItem(title: "Quit AI Fuel Gauge", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appItem.submenu = appMenu
+
+        let editItem = NSMenuItem()
+        mainMenu.addItem(editItem)
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"))
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+        editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+        editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+        editItem.submenu = editMenu
+
+        NSApp.mainMenu = mainMenu
+    }
+
     @objc private func togglePopover() {
         guard let button = statusItem?.button else { return }
         if popover.isShown {
@@ -64,6 +89,60 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+private enum AppPreferences {
+    static let claudeCodePlanLabelKey = "claudeCodePlanLabel"
+    static let cursorPlanOverrideKey = "cursorPlanOverride"
+    static let alert50EnabledKey = "alert50Enabled"
+    static let alert75EnabledKey = "alert75Enabled"
+    static let alert90EnabledKey = "alert90Enabled"
+    static let alert100EnabledKey = "alert100Enabled"
+    static let staleWarningsEnabledKey = "staleWarningsEnabled"
+    static let refreshIntervalSecondsKey = "refreshIntervalSeconds"
+
+    static func registerDefaults() {
+        UserDefaults.standard.register(defaults: [
+            claudeCodePlanLabelKey: "Free",
+            cursorPlanOverrideKey: "",
+            alert50EnabledKey: false,
+            alert75EnabledKey: true,
+            alert90EnabledKey: true,
+            alert100EnabledKey: true,
+            staleWarningsEnabledKey: true,
+            refreshIntervalSecondsKey: 180
+        ])
+    }
+
+    static func localPlanPreferences() -> LocalPlanPreferences {
+        LocalPlanPreferences(
+            claudeCodePlan: string(for: claudeCodePlanLabelKey),
+            cursorPlanOverride: string(for: cursorPlanOverrideKey)
+        )
+    }
+
+    static func alertThresholds() -> [Double] {
+        var thresholds: [Double] = []
+        if UserDefaults.standard.bool(forKey: alert50EnabledKey) { thresholds.append(0.50) }
+        if UserDefaults.standard.bool(forKey: alert75EnabledKey) { thresholds.append(0.75) }
+        if UserDefaults.standard.bool(forKey: alert90EnabledKey) { thresholds.append(0.90) }
+        if UserDefaults.standard.bool(forKey: alert100EnabledKey) { thresholds.append(1.00) }
+        return thresholds
+    }
+
+    static var staleWarningsEnabled: Bool {
+        UserDefaults.standard.bool(forKey: staleWarningsEnabledKey)
+    }
+
+    static var refreshIntervalSeconds: TimeInterval {
+        let seconds = UserDefaults.standard.integer(forKey: refreshIntervalSecondsKey)
+        return TimeInterval(max(60, seconds))
+    }
+
+    private static func string(for key: String) -> String? {
+        let trimmed = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 @MainActor
 private final class DashboardController: ObservableObject {
     @Published private(set) var model: DashboardViewModel
@@ -73,7 +152,7 @@ private final class DashboardController: ObservableObject {
     private var autoRefreshCancellable: AnyCancellable?
     private var summary: UsageSummary?
     private var notifiedStaleIDs = Set<String>()
-    private let alertPlanner = UsageAlertPlanner()
+    private var lastRefreshAt = Date.distantPast
 
     init() {
         self.model = DashboardViewModel(summary: UsageSummary(snapshots: []))
@@ -85,6 +164,7 @@ private final class DashboardController: ObservableObject {
     func refresh() {
         guard !isRefreshing else { return }
         isRefreshing = true
+        lastRefreshAt = Date()
         refreshError = nil
         refreshTask?.cancel()
         refreshTask = Task { [weak self] in
@@ -101,17 +181,21 @@ private final class DashboardController: ObservableObject {
     }
 
     private func startAutoRefresh() {
-        autoRefreshCancellable = Timer.publish(every: 180, tolerance: 15, on: .main, in: .common)
+        autoRefreshCancellable = Timer.publish(every: 60, tolerance: 10, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
-                self?.refresh()
+                guard let self, Date().timeIntervalSince(self.lastRefreshAt) >= AppPreferences.refreshIntervalSeconds else { return }
+                self.refresh()
             }
     }
 
     private func deliverAlerts(for current: UsageSummary, previous: UsageSummary?) {
+        let alertPlanner = UsageAlertPlanner(thresholds: AppPreferences.alertThresholds())
         let crossingAlerts = alertPlanner.alerts(previous: previous, current: current)
-        let staleAlerts = alertPlanner.staleAlerts(summary: current, now: Date(), maxAge: 600)
+        let staleAlerts = AppPreferences.staleWarningsEnabled
+            ? alertPlanner.staleAlerts(summary: current, now: Date(), maxAge: 600)
             .filter { notifiedStaleIDs.insert($0.identifier).inserted }
+            : []
         let currentIDs = Set(current.snapshots.map(\.id))
         notifiedStaleIDs = notifiedStaleIDs.filter { staleID in
             currentIDs.contains(staleID.replacingOccurrences(of: "-stale", with: ""))
@@ -125,7 +209,7 @@ private final class DashboardController: ObservableObject {
             var warnings: [String] = []
 
             do {
-                snapshots.append(contentsOf: try LocalUsageCollector().collect())
+                snapshots.append(contentsOf: try LocalUsageCollector(planPreferences: AppPreferences.localPlanPreferences()).collect())
             } catch {
                 warnings.append("Local refresh failed")
             }
@@ -502,7 +586,7 @@ private final class SettingsWindowController {
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 350),
+            contentRect: NSRect(x: 0, y: 0, width: 540, height: 620),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -520,36 +604,86 @@ private final class SettingsWindowController {
 private struct SettingsView: View {
     @State private var openRouterKey: String
     @State private var message: String = "Stored in macOS Keychain. Not synced."
+    @State private var detectedCursorPlan: String
+    @State private var detectedCursorStatus: String
+    @AppStorage(AppPreferences.claudeCodePlanLabelKey) private var claudeCodePlanLabel = "Free"
+    @AppStorage(AppPreferences.cursorPlanOverrideKey) private var cursorPlanOverride = ""
+    @AppStorage(AppPreferences.alert50EnabledKey) private var alert50Enabled = false
+    @AppStorage(AppPreferences.alert75EnabledKey) private var alert75Enabled = true
+    @AppStorage(AppPreferences.alert90EnabledKey) private var alert90Enabled = true
+    @AppStorage(AppPreferences.alert100EnabledKey) private var alert100Enabled = true
+    @AppStorage(AppPreferences.staleWarningsEnabledKey) private var staleWarningsEnabled = true
+    @AppStorage(AppPreferences.refreshIntervalSecondsKey) private var refreshIntervalSeconds = 180
 
     init() {
         _openRouterKey = State(initialValue: KeychainStore.readOpenRouterKey() ?? "")
+        let cursorState = CursorAccountStateReader(
+            cursorDirectory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Cursor")
+        ).read()
+        _detectedCursorPlan = State(initialValue: cursorState?.displayPlan ?? "Not found")
+        _detectedCursorStatus = State(initialValue: cursorState?.displayStatus ?? "No local account status")
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Provider keys")
                     .font(.system(size: 17, weight: .semibold, design: .rounded))
-                Text("OpenRouter is first because it exposes official credit/key metadata cleanly.")
+                Text("Local-first sources stay automatic. Add keys only for providers that expose official usage metadata.")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
             }
 
-            VStack(alignment: .leading, spacing: 8) {
+            SettingsPanel {
                 Text("Plan labels")
                     .font(.system(size: 11, weight: .semibold))
-                PlanLabelRow(provider: "Codex", plan: "Pro", detail: "Exact account usage when ~/.codex/auth.json is valid.")
-                PlanLabelRow(provider: "Claude Code", plan: "Free", detail: "Local token estimate only; no hard quota exposed.")
-                PlanLabelRow(provider: "Cursor", plan: "Pro ($20)", detail: "Detected locally; usage connector not wired yet.")
+                EditablePlanRow(provider: "Codex", value: "Auto from account", detail: "Exact plan and quota from ~/.codex/auth.json when available.")
+                EditableTextPlanRow(provider: "Claude Code", text: $claudeCodePlanLabel, placeholder: "Free", detail: "Shown with local token estimates. Clear it if this is wrong.")
+                EditableTextPlanRow(provider: "Cursor", text: $cursorPlanOverride, placeholder: detectedCursorPlan, detail: "Detected: \(detectedCursorPlan) · \(detectedCursorStatus). Override only if needed.")
             }
-            .padding(10)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 6) {
+            SettingsPanel {
+                Text("Auto-sync")
+                    .font(.system(size: 11, weight: .semibold))
+                Picker("Refresh", selection: $refreshIntervalSeconds) {
+                    Text("1 min").tag(60)
+                    Text("3 min").tag(180)
+                    Text("5 min").tag(300)
+                    Text("15 min").tag(900)
+                }
+                .pickerStyle(.segmented)
+                Text("Runs in the background while the menu bar app is open. Manual Refresh always works immediately.")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            SettingsPanel {
+                Text("Warnings")
+                    .font(.system(size: 11, weight: .semibold))
+                HStack(spacing: 12) {
+                    Toggle("50%", isOn: $alert50Enabled)
+                    Toggle("75%", isOn: $alert75Enabled)
+                    Toggle("90%", isOn: $alert90Enabled)
+                    Toggle("100%", isOn: $alert100Enabled)
+                    Toggle("Stale", isOn: $staleWarningsEnabled)
+                }
+                .font(.system(size: 10, weight: .medium))
+                Text("Alerts fire when usage crosses enabled thresholds. Codex notifications use remaining-capacity language.")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            SettingsPanel {
                 Text("OpenRouter API key")
                     .font(.system(size: 11, weight: .semibold))
-                SecureField("sk-or-v1-...", text: $openRouterKey)
-                    .textFieldStyle(.roundedBorder)
+                HStack(spacing: 8) {
+                    SecureField("sk-or-v1-...", text: $openRouterKey)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Paste") {
+                        pasteOpenRouterKey()
+                    }
+                    .help("Paste from clipboard")
+                }
                 Text(message)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
@@ -557,45 +691,105 @@ private struct SettingsView: View {
 
             Spacer()
 
-            HStack {
-                Button("Delete key") {
-                    KeychainStore.deleteOpenRouterKey()
-                    openRouterKey = ""
-                    message = "OpenRouter key deleted."
-                }
-                Spacer()
-                Button("Save key") {
-                    do {
-                        try KeychainStore.saveOpenRouterKey(openRouterKey)
-                        message = "OpenRouter key saved. Refresh will use it for live API polling."
-                    } catch {
-                        message = "Could not save key: \(error.localizedDescription)"
+            VStack(spacing: 8) {
+                HStack {
+                    Button("Cursor usage") {
+                        NSWorkspace.shared.open(URL(string: "https://cursor.com/dashboard")!)
                     }
+                    Button("OpenRouter usage") {
+                        NSWorkspace.shared.open(URL(string: "https://openrouter.ai/settings/credits")!)
+                    }
+                    Spacer()
                 }
-                .keyboardShortcut(.defaultAction)
+                HStack {
+                    Button("Delete key") {
+                        KeychainStore.deleteOpenRouterKey()
+                        openRouterKey = ""
+                        message = "OpenRouter key deleted."
+                    }
+                    Spacer()
+                    Button("Save key") {
+                        do {
+                            try KeychainStore.saveOpenRouterKey(openRouterKey)
+                            message = "OpenRouter key saved. Refresh will use it for live API polling."
+                        } catch {
+                            message = "Could not save key: \(error.localizedDescription)"
+                        }
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
             }
         }
         .padding(18)
-        .frame(width: 460, height: 350)
+        .frame(width: 540, height: 620)
+    }
+
+    private func pasteOpenRouterKey() {
+        guard let pasted = NSPasteboard.general.string(forType: .string) else {
+            message = "Clipboard does not contain text."
+            return
+        }
+        openRouterKey = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+        message = "Pasted from clipboard. Save to store it in Keychain."
     }
 }
 
-private struct PlanLabelRow: View {
+private struct SettingsPanel<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            content
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct EditablePlanRow: View {
     let provider: String
-    let plan: String
+    let value: String
     let detail: String
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(provider)
                 .font(.system(size: 10, weight: .semibold))
-                .frame(width: 78, alignment: .leading)
-            Text(plan)
+                .frame(width: 86, alignment: .leading)
+            Text(value)
                 .font(.system(size: 10, weight: .semibold))
                 .monospacedDigit()
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
                 .background(.quaternary, in: Capsule())
+            Text(detail)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+}
+
+private struct EditableTextPlanRow: View {
+    let provider: String
+    @Binding var text: String
+    let placeholder: String
+    let detail: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(provider)
+                .font(.system(size: 10, weight: .semibold))
+                .frame(width: 86, alignment: .leading)
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 10, weight: .medium))
+                .frame(width: 110)
             Text(detail)
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(.secondary)

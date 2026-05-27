@@ -9,7 +9,10 @@ let package = Package(
         .executable(name: "aifuelgauge", targets: ["AIFuelGaugeApp"])
     ],
     targets: [
-        .target(name: "AIFuelGaugeCore"),
+        .target(
+            name: "AIFuelGaugeCore",
+            linkerSettings: [.linkedLibrary("sqlite3")]
+        ),
         .executableTarget(
             name: "AIFuelGaugeApp",
             dependencies: ["AIFuelGaugeCore"]

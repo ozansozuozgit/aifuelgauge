@@ -100,8 +100,8 @@ final class UsageStatusTests: XCTestCase {
             UsageSnapshot(
                 provider: .cursor,
                 source: .localLogs,
-                account: UsageAccount(identifier: "cursor-local", displayName: "Cursor", plan: "Pro ($20)"),
-                label: "Subscription",
+                account: UsageAccount(identifier: "cursor-local", displayName: "Cursor", plan: "Pro"),
+                label: "Subscription active",
                 used: .requests(0),
                 limit: nil,
                 reset: nil,
@@ -125,8 +125,20 @@ final class UsageStatusTests: XCTestCase {
 
         XCTAssertEqual(model.primaryGauge?.title, "Codex · Pro · 5h")
         XCTAssertEqual(model.rows.map(\.title), ["Cursor · Subscription"])
-        XCTAssertEqual(model.rows.map(\.value), ["Pro ($20)"])
+        XCTAssertEqual(model.rows.map(\.value), ["Pro"])
         XCTAssertNil(model.rows.first?.meterPercent)
+    }
+
+    func testAlertPlannerEmitsResetReadyWhenAConstrainedLaneRefreshes() {
+        let earlier = UsageSummary(snapshots: [snapshot(provider: .codex, label: "5h", percent: 0.91, reset: 120)])
+        let later = UsageSummary(snapshots: [snapshot(provider: .codex, label: "5h", percent: 0.08, reset: 5 * 3600)])
+        let planner = UsageAlertPlanner(thresholds: [0.75, 0.9])
+
+        let alerts = planner.alerts(previous: earlier, current: later)
+
+        XCTAssertEqual(alerts.map(\.identifier), ["codex-5h-reset-ready"])
+        XCTAssertEqual(alerts.map(\.title), ["Codex · 5h is ready again"])
+        XCTAssertEqual(alerts.map(\.body), ["92% left · next reset in 5h"])
     }
 
     func testAlertPlannerEmitsStaleSourceEvents() {

@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 
 public enum LocalAgentSourceKind: String, Codable, Equatable, Hashable {
     case jsonlDirectory
@@ -64,6 +65,21 @@ public struct LocalAgentDetector {
 
 public enum LocalUsageParseError: Error, Equatable {
     case noUsageFound
+}
+
+public struct LocalPlanPreferences: Equatable, Sendable {
+    public let claudeCodePlan: String?
+    public let cursorPlanOverride: String?
+
+    public init(claudeCodePlan: String? = nil, cursorPlanOverride: String? = nil) {
+        self.claudeCodePlan = Self.normalized(claudeCodePlan)
+        self.cursorPlanOverride = Self.normalized(cursorPlanOverride)
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }
 
 public struct ClaudeJSONLUsageParser {
@@ -204,15 +220,18 @@ public struct LocalUsageCollector {
     private let homeDirectory: URL
     private let fileManager: FileManager
     private let now: () -> Date
+    private let planPreferences: LocalPlanPreferences
 
     public init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         fileManager: FileManager = .default,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        planPreferences: LocalPlanPreferences = LocalPlanPreferences()
     ) {
         self.homeDirectory = homeDirectory
         self.fileManager = fileManager
         self.now = now
+        self.planPreferences = planPreferences
     }
 
     public func collect() throws -> [UsageSnapshot] {
@@ -224,7 +243,7 @@ public struct LocalUsageCollector {
                 if let snapshot = try? ClaudeJSONLUsageParser(now: now).parse(
                     lines: readJSONLLines(recursivelyUnder: source.url),
                     label: "Claude Code",
-                    account: UsageAccount(identifier: "claude-code-local", displayName: "Claude Code", plan: "Free")
+                    account: UsageAccount(identifier: "claude-code-local", displayName: "Claude Code", plan: planPreferences.claudeCodePlan)
                 ) {
                     snapshots.append(snapshot)
                 }
@@ -244,16 +263,20 @@ public struct LocalUsageCollector {
                     updatedAt: now()
                 ))
             case .cursor:
+                let cursorState = CursorAccountStateReader(cursorDirectory: source.url, fileManager: fileManager).read()
+                let plan = planPreferences.cursorPlanOverride ?? cursorState?.displayPlan
+                let status = cursorState?.displayStatus
+                let updatedAt = cursorState?.updatedAt ?? now()
                 snapshots.append(UsageSnapshot(
                     provider: .cursor,
                     source: .localLogs,
-                    account: UsageAccount(identifier: "cursor-local", displayName: "Cursor", plan: "Pro ($20)"),
-                    label: "Subscription",
+                    account: UsageAccount(identifier: "cursor-local", displayName: "Cursor", plan: plan),
+                    label: status.map { "Subscription \($0)" } ?? "Subscription",
                     used: .requests(0),
                     limit: nil,
                     reset: nil,
                     confidence: .unknown,
-                    updatedAt: now()
+                    updatedAt: updatedAt
                 ))
             default:
                 continue
@@ -313,6 +336,126 @@ public struct LocalUsageCollector {
         return try? handle.readToEnd()
     }
 }
+
+public struct CursorAccountState: Equatable, Sendable {
+    public let membershipType: String?
+    public let subscriptionStatus: String?
+    public let email: String?
+    public let updatedAt: Date
+
+    public var displayPlan: String? {
+        guard let membershipType else { return nil }
+        switch membershipType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "free", "hobby":
+            return "Free"
+        case "pro":
+            return "Pro"
+        case "pro_plus", "proplus", "pro-plus":
+            return "Pro+"
+        case "ultra":
+            return "Ultra"
+        case "team", "teams", "business":
+            return "Team"
+        case "enterprise":
+            return "Enterprise"
+        case "":
+            return nil
+        default:
+            return membershipType
+                .replacingOccurrences(of: "_", with: " ")
+                .replacingOccurrences(of: "-", with: " ")
+                .split(separator: " ")
+                .map { word in word.prefix(1).uppercased() + word.dropFirst().lowercased() }
+                .joined(separator: " ")
+        }
+    }
+
+    public var displayStatus: String? {
+        guard let subscriptionStatus else { return nil }
+        switch subscriptionStatus.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "active":
+            return "active"
+        case "trialing":
+            return "trial"
+        case "canceled", "cancelled":
+            return "cancelled"
+        case "past_due":
+            return "past due"
+        case "":
+            return nil
+        default:
+            return subscriptionStatus.replacingOccurrences(of: "_", with: " ")
+        }
+    }
+}
+
+public struct CursorAccountStateReader {
+    private let cursorDirectory: URL
+    private let fileManager: FileManager
+
+    public init(cursorDirectory: URL, fileManager: FileManager = .default) {
+        self.cursorDirectory = cursorDirectory
+        self.fileManager = fileManager
+    }
+
+    public func read() -> CursorAccountState? {
+        let databaseURL = cursorDirectory.appendingPathComponent("User/globalStorage/state.vscdb")
+        guard fileManager.fileExists(atPath: databaseURL.path) else { return nil }
+        let updatedAt = (try? databaseURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+        guard let values = readCursorAuthValues(from: databaseURL) else { return nil }
+        let state = CursorAccountState(
+            membershipType: values["cursorAuth/stripeMembershipType"],
+            subscriptionStatus: values["cursorAuth/stripeSubscriptionStatus"],
+            email: values["cursorAuth/cachedEmail"],
+            updatedAt: updatedAt
+        )
+        if state.membershipType == nil, state.subscriptionStatus == nil, state.email == nil { return nil }
+        return state
+    }
+
+    private func readCursorAuthValues(from databaseURL: URL) -> [String: String]? {
+        let keys = [
+            "cursorAuth/stripeMembershipType",
+            "cursorAuth/stripeSubscriptionStatus",
+            "cursorAuth/cachedEmail"
+        ]
+        var database: OpaquePointer?
+        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX
+        guard sqlite3_open_v2(databaseURL.path, &database, flags, nil) == SQLITE_OK, let database else {
+            return nil
+        }
+        defer { sqlite3_close(database) }
+
+        let placeholders = keys.map { _ in "?" }.joined(separator: ",")
+        let sql = "SELECT key, value FROM ItemTable WHERE key IN (\(placeholders));"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
+            return nil
+        }
+        defer { sqlite3_finalize(statement) }
+
+        for (index, key) in keys.enumerated() {
+            sqlite3_bind_text(statement, Int32(index + 1), key, -1, SQLITE_TRANSIENT)
+        }
+
+        var values: [String: String] = [:]
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let keyPointer = sqlite3_column_text(statement, 0),
+                  let valuePointer = sqlite3_column_text(statement, 1) else {
+                continue
+            }
+            let key = String(cString: keyPointer)
+            let value = String(cString: valuePointer)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"").union(.whitespacesAndNewlines))
+            if !value.isEmpty {
+                values[key] = value
+            }
+        }
+        return values
+    }
+}
+
+private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 private struct LocalJSONLFile {
     let url: URL

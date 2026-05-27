@@ -1,4 +1,5 @@
 import XCTest
+import SQLite3
 @testable import AIFuelGaugeCore
 
 final class LocalAgentUsageTests: XCTestCase {
@@ -35,6 +36,25 @@ final class LocalAgentUsageTests: XCTestCase {
         XCTAssertNil(snapshot.limit)
         XCTAssertEqual(snapshot.confidence, .estimated)
         XCTAssertEqual(snapshot.updatedAt, Date(timeIntervalSince1970: 1_779_797_100))
+    }
+
+    func testReadsCursorPlanFromLocalStateDatabaseWithoutHardcodingPlan() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let cursorDir = home.appendingPathComponent("Library/Application Support/Cursor")
+        let dbURL = cursorDir.appendingPathComponent("User/globalStorage/state.vscdb")
+        try FileManager.default.createDirectory(at: dbURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Self.createCursorStateDatabase(at: dbURL, values: [
+            "cursorAuth/stripeMembershipType": "pro",
+            "cursorAuth/stripeSubscriptionStatus": "active",
+            "cursorAuth/cachedEmail": "user@example.com"
+        ])
+
+        let state = try XCTUnwrap(CursorAccountStateReader(cursorDirectory: cursorDir).read())
+
+        XCTAssertEqual(state.membershipType, "pro")
+        XCTAssertEqual(state.displayPlan, "Pro")
+        XCTAssertEqual(state.displayStatus, "active")
+        XCTAssertEqual(state.email, "user@example.com")
     }
 
     func testParsesLatestCodexRateLimitTokenCount() throws {
@@ -106,5 +126,22 @@ final class LocalAgentUsageTests: XCTestCase {
         XCTAssertEqual(snapshots[1].confidence, .exact)
         XCTAssertEqual(snapshots[1].used, .percent(42))
         XCTAssertEqual(snapshots[1].reset, .rollingWindow(secondsRemaining: 295091))
+    }
+
+    static func createCursorStateDatabase(at url: URL, values: [String: String]) throws {
+        var database: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(url.path, &database), SQLITE_OK)
+        defer { sqlite3_close(database) }
+        XCTAssertEqual(sqlite3_exec(database, "CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT);", nil, nil, nil), SQLITE_OK)
+        var statement: OpaquePointer?
+        XCTAssertEqual(sqlite3_prepare_v2(database, "INSERT INTO ItemTable (key, value) VALUES (?, ?);", -1, &statement, nil), SQLITE_OK)
+        defer { sqlite3_finalize(statement) }
+        for (key, value) in values {
+            sqlite3_reset(statement)
+            sqlite3_clear_bindings(statement)
+            sqlite3_bind_text(statement, 1, key, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(statement, 2, value, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            XCTAssertEqual(sqlite3_step(statement), SQLITE_DONE)
+        }
     }
 }

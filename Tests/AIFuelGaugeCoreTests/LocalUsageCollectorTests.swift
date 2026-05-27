@@ -12,6 +12,12 @@ final class LocalUsageCollectorTests: XCTestCase {
         try FileManager.default.createDirectory(at: codexDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: opencodeDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: cursorDir, withIntermediateDirectories: true)
+        let cursorDB = cursorDir.appendingPathComponent("User/globalStorage/state.vscdb")
+        try FileManager.default.createDirectory(at: cursorDB.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try LocalAgentUsageTests.createCursorStateDatabase(at: cursorDB, values: [
+            "cursorAuth/stripeMembershipType": "pro",
+            "cursorAuth/stripeSubscriptionStatus": "active"
+        ])
         try """
         {"type":"assistant","message":{"usage":{"input_tokens":10,"output_tokens":3,"cache_read_input_tokens":4,"cache_creation_input_tokens":5}}}
         """.write(to: claudeDir.appendingPathComponent("session.jsonl"), atomically: true, encoding: .utf8)
@@ -20,7 +26,11 @@ final class LocalUsageCollectorTests: XCTestCase {
         """.write(to: codexDir.appendingPathComponent("rollout.jsonl"), atomically: true, encoding: .utf8)
         FileManager.default.createFile(atPath: opencodeDir.appendingPathComponent("opencode.db").path, contents: Data())
 
-        let collector = LocalUsageCollector(homeDirectory: home, now: { Date(timeIntervalSince1970: 2000) })
+        let collector = LocalUsageCollector(
+            homeDirectory: home,
+            now: { Date(timeIntervalSince1970: 2000) },
+            planPreferences: LocalPlanPreferences(claudeCodePlan: "Free")
+        )
         let snapshots = try collector.collect()
 
         XCTAssertEqual(snapshots.map(\.provider), [.claudeCode, .codex, .openCode, .cursor])
@@ -28,8 +38,8 @@ final class LocalUsageCollectorTests: XCTestCase {
         XCTAssertEqual(snapshots[0].account?.plan, "Free")
         XCTAssertEqual(snapshots[1].used, .percent(66))
         XCTAssertEqual(snapshots[2].confidence, .unknown)
-        XCTAssertEqual(snapshots[3].label, "Subscription")
-        XCTAssertEqual(snapshots[3].account?.plan, "Pro ($20)")
+        XCTAssertEqual(snapshots[3].label, "Subscription active")
+        XCTAssertEqual(snapshots[3].account?.plan, "Pro")
         XCTAssertTrue(snapshots[3].isSubscriptionOnly)
     }
 }

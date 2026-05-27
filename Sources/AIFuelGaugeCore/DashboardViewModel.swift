@@ -328,6 +328,9 @@ public struct DashboardViewModel: Equatable, Sendable {
         if snapshot.isSubscriptionOnly, let plan = snapshot.account?.plan?.trimmingCharacters(in: .whitespacesAndNewlines), !plan.isEmpty {
             return plan
         }
+        if snapshot.isSubscriptionOnly {
+            return "Detected"
+        }
 
         if let usagePercent = snapshot.usagePercent {
             if prefersRemainingDisplay(snapshot) {
