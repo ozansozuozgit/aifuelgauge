@@ -32,7 +32,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 500, height: 640)
+        popover.contentSize = NSSize(width: 500, height: 700)
         popover.contentViewController = NSHostingController(
             rootView: DashboardView(
                 controller: controller,
@@ -483,6 +483,9 @@ private struct DashboardView: View {
             header
             InsightStrip(text: model.insight, state: model.state)
             SourceHealthStrip(items: model.sourceHealth)
+            if !model.setupGuidance.isEmpty {
+                SetupGuidanceView(items: model.setupGuidance)
+            }
             if !model.resetTimeline.isEmpty {
                 ResetTimelineStrip(items: model.resetTimeline)
             }
@@ -510,7 +513,7 @@ private struct DashboardView: View {
             footer
         }
         .padding(16)
-        .frame(width: 500, height: 640)
+        .frame(width: 500, height: 700)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -547,6 +550,53 @@ private struct DashboardView: View {
             FooterButton(title: "Quit", systemName: "xmark", action: actions.quit)
         }
         .padding(.top, 1)
+    }
+}
+
+private struct SetupGuidanceView: View {
+    let items: [DashboardSetupItem]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Image(systemName: "wrench.and.screwdriver")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text("Improve accuracy")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            VStack(spacing: 6) {
+                ForEach(items) { item in
+                    HStack(alignment: .top, spacing: 8) {
+                        Circle()
+                            .fill(color(for: item.state))
+                            .frame(width: 6, height: 6)
+                            .padding(.top, 5)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 5) {
+                                Text(item.title)
+                                    .font(.system(size: 10, weight: .semibold))
+                                Text(item.status)
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(color(for: item.state))
+                            }
+                            Text(item.action)
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(.secondary.opacity(0.84))
+                                .lineLimit(2)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 7)
+                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.58), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+            }
+        }
+        .accessibilityLabel(items.map { "\($0.title): \($0.status). \($0.action)" }.joined(separator: ", "))
     }
 }
 

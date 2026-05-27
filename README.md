@@ -30,6 +30,8 @@ use right now without running into a limit?
   formatting.
 - Source-health strip showing live account connectors, local fallbacks, setup
   needed rows, and stale sources at a glance.
+- Actionable setup guidance explains missing or fallback sources directly in
+  the popover.
 - Local 7-day persisted sparklines for comparable quota rows so usage drift
   remains visible across app restarts without opening provider dashboards.
 - Trend captions under sparklines show 7-day peak and direction at a glance.

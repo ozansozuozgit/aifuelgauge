@@ -401,6 +401,22 @@ public struct DashboardResetItem: Equatable, Identifiable, Sendable {
     }
 }
 
+public struct DashboardSetupItem: Equatable, Identifiable, Sendable {
+    public let id: String
+    public let title: String
+    public let status: String
+    public let action: String
+    public let state: UsageState
+
+    public init(id: String, title: String, status: String, action: String, state: UsageState) {
+        self.id = id
+        self.title = title
+        self.status = status
+        self.action = action
+        self.state = state
+    }
+}
+
 public struct DashboardViewModel: Equatable, Sendable {
     public let title: String
     public let subtitle: String
@@ -409,6 +425,7 @@ public struct DashboardViewModel: Equatable, Sendable {
     public let statusLabel: String
     public let footerNote: String
     public let sourceHealth: [DashboardSourceHealthItem]
+    public let setupGuidance: [DashboardSetupItem]
     public let resetTimeline: [DashboardResetItem]
     public let primaryGauge: DashboardGauge?
     public let rows: [DashboardRow]
@@ -428,6 +445,7 @@ public struct DashboardViewModel: Equatable, Sendable {
         self.trustDigest = Self.trustDigest(for: summary)
         self.footerNote = Self.footerNote(for: summary)
         self.sourceHealth = Self.sourceHealth(for: summary, now: now)
+        self.setupGuidance = Self.setupGuidance(for: summary)
         self.resetTimeline = Self.resetTimeline(for: summary, now: now)
         self.primaryGauge = summary.primarySnapshot.flatMap { Self.gauge(for: $0, now: now) }
         let hiddenPrimaryID = summary.primarySnapshot.flatMap { Self.hidesPrimaryRow($0) ? $0.id : nil }
@@ -619,6 +637,80 @@ public struct DashboardViewModel: Equatable, Sendable {
             ))
         }
         return items
+    }
+
+    private static func setupGuidance(for summary: UsageSummary) -> [DashboardSetupItem] {
+        let snapshots = summary.snapshots
+        let exactComparableProviders = Set(snapshots.compactMap { snapshot -> Provider? in
+            snapshot.usagePercent != nil && snapshot.confidence == .exact ? snapshot.provider : nil
+        })
+        let hasExactComparable = !exactComparableProviders.isEmpty
+        let grouped = Dictionary(grouping: snapshots, by: \.provider)
+        var items: [DashboardSetupItem] = []
+
+        if !exactComparableProviders.contains(.codex) {
+            if grouped[.codex]?.isEmpty == false {
+                items.append(DashboardSetupItem(
+                    id: "codex-fallback",
+                    title: "Codex",
+                    status: "Using fallback data",
+                    action: "Account usage is unavailable. Refresh after signing in to Codex.",
+                    state: .unknown
+                ))
+            } else if !hasExactComparable {
+                items.append(DashboardSetupItem(
+                    id: "codex-missing",
+                    title: "Codex",
+                    status: "Not detected",
+                    action: "Run Codex once, then refresh to pick up quota metadata.",
+                    state: .unknown
+                ))
+            }
+        }
+
+        if !exactComparableProviders.contains(.cursor) {
+            if grouped[.cursor]?.contains(where: { $0.isSubscriptionOnly }) == true {
+                items.append(DashboardSetupItem(
+                    id: "cursor-subscription-only",
+                    title: "Cursor",
+                    status: "Plan found, usage missing",
+                    action: "Open Cursor while signed in, then refresh for live account usage.",
+                    state: .caution
+                ))
+            } else if !hasExactComparable {
+                items.append(DashboardSetupItem(
+                    id: "cursor-missing",
+                    title: "Cursor",
+                    status: "Not detected",
+                    action: "Open Cursor while signed in so the local account state can be read.",
+                    state: .unknown
+                ))
+            }
+        }
+
+        if !exactComparableProviders.contains(.openRouter), !hasExactComparable {
+            items.append(DashboardSetupItem(
+                id: "openrouter-missing",
+                title: "OpenRouter",
+                status: "API key missing",
+                action: "Paste an API key in Settings for exact credit usage.",
+                state: .unknown
+            ))
+        }
+
+        if let claude = grouped[.claudeCode],
+           !claude.contains(where: { $0.usagePercent != nil }),
+           !hasExactComparable {
+            items.append(DashboardSetupItem(
+                id: "claude-estimated",
+                title: "Claude Code",
+                status: "Estimated only",
+                action: "Local logs show token use, but no hard quota is exposed.",
+                state: .unknown
+            ))
+        }
+
+        return Array(items.prefix(3))
     }
 
     private static func resetTimeline(for summary: UsageSummary, now: Date) -> [DashboardResetItem] {

@@ -315,6 +315,71 @@ final class DashboardViewModelTests: XCTestCase {
         ])
     }
 
+    func testSetupGuidanceExplainsMissingSourcesWhenNothingExactIsConnected() {
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: []), now: Date(timeIntervalSince1970: 100))
+
+        XCTAssertEqual(model.setupGuidance, [
+            DashboardSetupItem(
+                id: "codex-missing",
+                title: "Codex",
+                status: "Not detected",
+                action: "Run Codex once, then refresh to pick up quota metadata.",
+                state: .unknown
+            ),
+            DashboardSetupItem(
+                id: "cursor-missing",
+                title: "Cursor",
+                status: "Not detected",
+                action: "Open Cursor while signed in so the local account state can be read.",
+                state: .unknown
+            ),
+            DashboardSetupItem(
+                id: "openrouter-missing",
+                title: "OpenRouter",
+                status: "API key missing",
+                action: "Paste an API key in Settings for exact credit usage.",
+                state: .unknown
+            )
+        ])
+    }
+
+    func testSetupGuidanceOnlyShowsActionableFallbacksWhenExactSourcesExist() {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                label: "5h",
+                used: .percent(20),
+                limit: .percent(100),
+                reset: nil,
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .cursor,
+                source: .localLogs,
+                account: UsageAccount(identifier: "cursor-local", displayName: "Cursor", plan: "Pro"),
+                label: "Subscription active",
+                used: .requests(0),
+                limit: nil,
+                reset: nil,
+                confidence: .unknown,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        XCTAssertEqual(model.setupGuidance, [
+            DashboardSetupItem(
+                id: "cursor-subscription-only",
+                title: "Cursor",
+                status: "Plan found, usage missing",
+                action: "Open Cursor while signed in, then refresh for live account usage.",
+                state: .caution
+            )
+        ])
+    }
+
     func testRowsExposeBoundedUsageHistoryForSparklines() {
         let now = Date(timeIntervalSince1970: 100)
         let older = UsageSummary(snapshots: [
