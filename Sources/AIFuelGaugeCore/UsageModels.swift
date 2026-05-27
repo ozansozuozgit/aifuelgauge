@@ -48,6 +48,7 @@ public enum UsageSource: String, Codable, Equatable, Hashable, Sendable {
 
 public enum MenuBarDisplayMode: String, Codable, Equatable, Hashable, CaseIterable, Sendable {
     case detailed
+    case pair
     case compact
     case minimal
 }
@@ -236,28 +237,51 @@ public struct UsageSummary: Equatable, Sendable {
         guard let primarySnapshot, let percent = primarySnapshot.usagePercent else {
             return "AI usage"
         }
+        switch mode {
+        case .detailed:
+            break
+        case .pair:
+            let lanes = snapshots
+                .filter { $0.usagePercent != nil }
+                .sorted(by: Self.prefersForPrimary)
+                .prefix(2)
+                .map { Self.menuBarSegment(for: $0, includeReset: false) }
+            guard lanes.count > 1 else {
+                return Self.menuBarSegment(for: primarySnapshot, includeReset: false)
+            }
+            return lanes.joined(separator: " · ")
+        case .compact:
+            return Self.menuBarSegment(for: primarySnapshot, includeReset: false)
+        case .minimal:
+            let percentage: Int
+            let qualifier: String
+            if Self.prefersRemainingDisplay(primarySnapshot) {
+                percentage = Int((max(0, 1 - percent) * 100).rounded())
+                qualifier = " left"
+            } else {
+                percentage = Int((percent * 100).rounded())
+                qualifier = ""
+            }
+            return "\(percentage)%\(qualifier)"
+        }
+        return Self.menuBarSegment(for: primarySnapshot, includeReset: true)
+    }
+
+    private static func menuBarSegment(for snapshot: UsageSnapshot, includeReset: Bool) -> String {
+        guard let percent = snapshot.usagePercent else { return snapshot.provider.shortName }
         let percentage: Int
         let qualifier: String
-        if Self.prefersRemainingDisplay(primarySnapshot) {
+        if prefersRemainingDisplay(snapshot) {
             percentage = Int((max(0, 1 - percent) * 100).rounded())
             qualifier = " left"
         } else {
             percentage = Int((percent * 100).rounded())
             qualifier = ""
         }
-        let lane = Self.menuLaneLabel(for: primarySnapshot).map { " \($0)" } ?? ""
-        switch mode {
-        case .detailed:
-            break
-        case .compact:
-            return "\(primarySnapshot.provider.shortName)\(lane) \(percentage)%\(qualifier)"
-        case .minimal:
-            return "\(percentage)%\(qualifier)"
-        }
-        if let resetTitle = primarySnapshot.reset?.compactTitle {
-            return "\(primarySnapshot.provider.shortName)\(lane) \(percentage)%\(qualifier) · \(resetTitle)"
-        }
-        return "\(primarySnapshot.provider.shortName)\(lane) \(percentage)%\(qualifier)"
+        let lane = menuLaneLabel(for: snapshot).map { " \($0)" } ?? ""
+        let base = "\(snapshot.provider.shortName)\(lane) \(percentage)%\(qualifier)"
+        guard includeReset, let resetTitle = snapshot.reset?.compactTitle else { return base }
+        return "\(base) · \(resetTitle)"
     }
 
     private static func prefersForPrimary(_ lhs: UsageSnapshot, _ rhs: UsageSnapshot) -> Bool {

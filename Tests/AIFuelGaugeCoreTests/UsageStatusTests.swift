@@ -77,8 +77,29 @@ final class UsageStatusTests: XCTestCase {
         ])
 
         XCTAssertEqual(summary.menuBarTitle(mode: .detailed), "Codex 5h 86% left · 1h")
+        XCTAssertEqual(summary.menuBarTitle(mode: .pair), "Codex 5h 86% left")
         XCTAssertEqual(summary.menuBarTitle(mode: .compact), "Codex 5h 86% left")
         XCTAssertEqual(summary.menuBarTitle(mode: .minimal), "86% left")
+    }
+
+    func testPairMenuBarModeShowsTwoMostRelevantComparableLanes() {
+        let summary = UsageSummary(snapshots: [
+            snapshot(provider: .codex, label: "5h", percent: 0.14, reset: 3600),
+            snapshot(provider: .cursor, label: "Included total", percent: 0.59, reset: 7200),
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "cursor-account", displayName: "Cursor", plan: "Pro"),
+                label: "Included spend",
+                used: .usd(20),
+                limit: nil,
+                reset: .rollingWindow(secondsRemaining: 7200),
+                confidence: .exact,
+                updatedAt: Date(timeIntervalSince1970: 100)
+            )
+        ])
+
+        XCTAssertEqual(summary.menuBarTitle(mode: .pair), "Cursor 59% · Codex 5h 86% left")
     }
 
     func testNotificationThresholdsOnlyFireOnceWhenCrossedUpwards() {

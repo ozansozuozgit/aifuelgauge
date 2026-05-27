@@ -45,7 +45,7 @@ use right now without running into a limit?
 - Footer controls for Refresh, Settings, History, Report, and Quit.
 - Settings for editable local plan labels, warning thresholds, and refresh cadence.
 - Per-provider alert profiles so noisy providers can be early, critical-only, or off.
-- Configurable menu bar display modes: detail, compact, or minimal.
+- Configurable menu bar display modes: detail, pair, compact, or minimal.
 - Data controls to reveal or clear the local usage-history file.
 - Copyable compact status snapshot plus a full diagnostics report for source
   status, history counts, and current refresh warnings without secrets.

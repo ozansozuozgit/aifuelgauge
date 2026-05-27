@@ -640,9 +640,32 @@ final class DashboardViewModelTests: XCTestCase {
             )
         ])
 
-        let model = DashboardViewModel(summary: summary, now: now, menuBarDisplayMode: .compact)
+        let compactModel = DashboardViewModel(summary: summary, now: now, menuBarDisplayMode: .compact)
+        let pairModel = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                label: "5h",
+                used: .percent(14),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3600),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                label: "Included total",
+                used: .percent(59),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3600),
+                confidence: .exact,
+                updatedAt: now
+            )
+        ]), now: now, menuBarDisplayMode: .pair)
 
-        XCTAssertEqual(model.title, "Codex 5h 86% left")
+        XCTAssertEqual(compactModel.title, "Codex 5h 86% left")
+        XCTAssertEqual(pairModel.title, "Cursor 59% · Codex 5h 86% left")
     }
 
     func testUsageHistoryPrunesMissingRowsAndKeepsRecentSamplesOnly() {
