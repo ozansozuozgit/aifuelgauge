@@ -20,6 +20,27 @@ public struct DashboardGauge: Equatable, Sendable {
     }
 }
 
+public struct UsageHistorySeries: Equatable, Sendable {
+    private let maxSamples: Int
+    public private(set) var samplesBySnapshotID: [String: [Double]]
+
+    public init(maxSamples: Int = 24, samplesBySnapshotID: [String: [Double]] = [:]) {
+        self.maxSamples = max(2, maxSamples)
+        self.samplesBySnapshotID = samplesBySnapshotID.mapValues { Array($0.suffix(max(2, maxSamples))) }
+    }
+
+    public mutating func record(summary: UsageSummary) {
+        let currentIDs = Set(summary.snapshots.map(\.id))
+        samplesBySnapshotID = samplesBySnapshotID.filter { currentIDs.contains($0.key) }
+        for snapshot in summary.snapshots {
+            guard let usagePercent = snapshot.usagePercent, usagePercent.isFinite else { continue }
+            var samples = samplesBySnapshotID[snapshot.id] ?? []
+            samples.append(min(max(usagePercent, 0), 1))
+            samplesBySnapshotID[snapshot.id] = Array(samples.suffix(maxSamples))
+        }
+    }
+}
+
 public struct DashboardRow: Equatable, Identifiable, Sendable {
     public let id: String
     public let title: String
@@ -28,10 +49,11 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
     public let explanation: String
     public let meterPercent: Double?
     public let meterLabel: String?
+    public let trendPercents: [Double]
     public let confidence: Confidence
     public let state: UsageState
 
-    public init(id: String, title: String, value: String, detail: String, explanation: String, meterPercent: Double?, meterLabel: String?, confidence: Confidence, state: UsageState) {
+    public init(id: String, title: String, value: String, detail: String, explanation: String, meterPercent: Double?, meterLabel: String?, trendPercents: [Double] = [], confidence: Confidence, state: UsageState) {
         self.id = id
         self.title = title
         self.value = value
@@ -39,6 +61,7 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
         self.explanation = explanation
         self.meterPercent = meterPercent
         self.meterLabel = meterLabel
+        self.trendPercents = trendPercents
         self.confidence = confidence
         self.state = state
     }
@@ -70,7 +93,7 @@ public struct DashboardViewModel: Equatable, Sendable {
     public let rows: [DashboardRow]
     public let state: UsageState
 
-    public init(summary: UsageSummary, now: Date = Date()) {
+    public init(summary: UsageSummary, now: Date = Date(), history: [String: [Double]] = [:]) {
         self.title = summary.menuBarTitle
         self.state = summary.overallState
         self.statusLabel = Self.statusLabel(for: summary.overallState)
@@ -93,10 +116,18 @@ public struct DashboardViewModel: Equatable, Sendable {
                     explanation: Self.explanation(for: snapshot),
                     meterPercent: snapshot.usagePercent.map { min(max($0, 0), 1) },
                     meterLabel: Self.remainingLabel(for: snapshot),
+                    trendPercents: Self.trendPercents(for: snapshot, history: history),
                     confidence: snapshot.confidence,
                     state: snapshot.state
                 )
             }
+    }
+
+    private static func trendPercents(for snapshot: UsageSnapshot, history: [String: [Double]]) -> [Double] {
+        guard snapshot.usagePercent != nil else { return [] }
+        return (history[snapshot.id] ?? [])
+            .filter(\.isFinite)
+            .map { min(max($0, 0), 1) }
     }
 
     private static func gauge(for snapshot: UsageSnapshot, now: Date) -> DashboardGauge? {

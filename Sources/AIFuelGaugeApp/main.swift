@@ -151,6 +151,7 @@ private final class DashboardController: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var autoRefreshCancellable: AnyCancellable?
     private var summary: UsageSummary?
+    private var history = UsageHistorySeries()
     private var notifiedStaleIDs = Set<String>()
     private var lastRefreshAt = Date.distantPast
 
@@ -173,7 +174,8 @@ private final class DashboardController: ObservableObject {
             guard let self else { return }
             let previous = self.summary
             self.summary = result.summary
-            self.model = DashboardViewModel(summary: result.summary)
+            self.history.record(summary: result.summary)
+            self.model = DashboardViewModel(summary: result.summary, history: self.history.samplesBySnapshotID)
             self.refreshError = result.error
             self.deliverAlerts(for: result.summary, previous: previous)
             self.isRefreshing = false
@@ -531,6 +533,12 @@ private struct SourceRowView: View {
                 MiniMeter(percent: percent, label: row.meterLabel ?? "quota lane", state: row.state)
                     .padding(.leading, 16)
             }
+            if row.trendPercents.count >= 2 {
+                UsageSparkline(samples: row.trendPercents, state: row.state)
+                    .frame(height: 18)
+                    .padding(.leading, 16)
+                    .accessibilityLabel("Recent usage trend")
+            }
             if !row.explanation.isEmpty {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: row.confidence == .exact ? "checkmark.seal.fill" : "info.circle.fill")
@@ -547,6 +555,38 @@ private struct SourceRowView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 10)
+    }
+}
+
+private struct UsageSparkline: View {
+    let samples: [Double]
+    let state: UsageState
+
+    var body: some View {
+        GeometryReader { proxy in
+            let clamped = samples.map { min(max($0, 0), 1) }
+            Path { path in
+                guard clamped.count >= 2, proxy.size.width > 0, proxy.size.height > 0 else { return }
+                let step = proxy.size.width / CGFloat(clamped.count - 1)
+                for (index, sample) in clamped.enumerated() {
+                    let x = CGFloat(index) * step
+                    let y = proxy.size.height - (CGFloat(sample) * proxy.size.height)
+                    if index == 0 {
+                        path.move(to: CGPoint(x: x, y: y))
+                    } else {
+                        path.addLine(to: CGPoint(x: x, y: y))
+                    }
+                }
+            }
+            .stroke(color(for: state).opacity(0.78), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+
+            Path { path in
+                let y = proxy.size.height * 0.25
+                path.move(to: CGPoint(x: 0, y: y))
+                path.addLine(to: CGPoint(x: proxy.size.width, y: y))
+            }
+            .stroke(Color.secondary.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+        }
     }
 }
 

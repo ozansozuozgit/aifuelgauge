@@ -48,6 +48,7 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.rows.map(\.detail), ["24 credits left · resets in 1h · Exact · API · 1m ago", "in 100 · out 20 · cache 340 · Estimated · local · 1m ago"])
         XCTAssertEqual(model.rows[0].meterPercent, 0.76)
         XCTAssertEqual(model.rows[0].meterLabel, "24 credits left")
+        XCTAssertEqual(model.rows[0].trendPercents, [])
         XCTAssertEqual(model.rows[0].explanation, "Exact from official OpenRouter API. Shows comparable credits with remaining capacity and refresh freshness.")
         XCTAssertEqual(model.rows[1].meterPercent, nil)
         XCTAssertEqual(model.rows[1].explanation, "Estimated from local Claude Code usage metadata. Token totals are approximate and no prompt text is stored.")
@@ -259,5 +260,57 @@ final class DashboardViewModelTests: XCTestCase {
             DashboardSourceHealthItem(id: "setup", title: "Setup", value: "1", state: .unknown),
             DashboardSourceHealthItem(id: "stale", title: "Stale", value: "1", state: .caution)
         ])
+    }
+
+    func testRowsExposeBoundedUsageHistoryForSparklines() {
+        let now = Date(timeIntervalSince1970: 100)
+        let older = UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .openRouter,
+                source: .officialAPI,
+                label: "key",
+                used: .credits(20),
+                limit: .credits(100),
+                reset: nil,
+                confidence: .exact,
+                updatedAt: now
+            )
+        ])
+        let current = UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .openRouter,
+                source: .officialAPI,
+                label: "key",
+                used: .credits(45),
+                limit: .credits(100),
+                reset: nil,
+                confidence: .exact,
+                updatedAt: now
+            )
+        ])
+        var history = UsageHistorySeries(maxSamples: 3)
+        history.record(summary: older)
+        history.record(summary: current)
+
+        let model = DashboardViewModel(summary: current, now: now, history: history.samplesBySnapshotID)
+
+        XCTAssertEqual(model.rows.first?.trendPercents, [0.2, 0.45])
+    }
+
+    func testUsageHistoryPrunesMissingRowsAndKeepsRecentSamplesOnly() {
+        let now = Date(timeIntervalSince1970: 100)
+        var history = UsageHistorySeries(maxSamples: 2)
+        history.record(summary: UsageSummary(snapshots: [
+            UsageSnapshot(provider: .openRouter, source: .officialAPI, label: "key", used: .credits(10), limit: .credits(100), reset: nil, confidence: .exact, updatedAt: now),
+            UsageSnapshot(provider: .cursor, source: .experimentalWebSession, label: "API usage", used: .percent(25), limit: .percent(100), reset: nil, confidence: .exact, updatedAt: now)
+        ]))
+        history.record(summary: UsageSummary(snapshots: [
+            UsageSnapshot(provider: .openRouter, source: .officialAPI, label: "key", used: .credits(20), limit: .credits(100), reset: nil, confidence: .exact, updatedAt: now)
+        ]))
+        history.record(summary: UsageSummary(snapshots: [
+            UsageSnapshot(provider: .openRouter, source: .officialAPI, label: "key", used: .credits(30), limit: .credits(100), reset: nil, confidence: .exact, updatedAt: now)
+        ]))
+
+        XCTAssertEqual(history.samplesBySnapshotID, ["openRouter-key": [0.2, 0.3]])
     }
 }
