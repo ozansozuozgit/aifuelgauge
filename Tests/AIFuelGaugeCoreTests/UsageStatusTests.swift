@@ -71,6 +71,16 @@ final class UsageStatusTests: XCTestCase {
         XCTAssertEqual(summary.menuBarTitle, "Codex Wk 18% left · 3d")
     }
 
+    func testMenuBarDisplayModesTradeDetailForSpace() {
+        let summary = UsageSummary(snapshots: [
+            snapshot(provider: .codex, label: "5h", percent: 0.14, reset: 3600)
+        ])
+
+        XCTAssertEqual(summary.menuBarTitle(mode: .detailed), "Codex 5h 86% left · 1h")
+        XCTAssertEqual(summary.menuBarTitle(mode: .compact), "Codex 5h 86% left")
+        XCTAssertEqual(summary.menuBarTitle(mode: .minimal), "86% left")
+    }
+
     func testNotificationThresholdsOnlyFireOnceWhenCrossedUpwards() {
         let thresholds = ThresholdTracker(thresholds: [0.5, 0.75, 0.9])
 

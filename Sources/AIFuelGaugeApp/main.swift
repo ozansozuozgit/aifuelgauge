@@ -98,6 +98,7 @@ private enum AppPreferences {
     static let alert100EnabledKey = "alert100Enabled"
     static let staleWarningsEnabledKey = "staleWarningsEnabled"
     static let refreshIntervalSecondsKey = "refreshIntervalSeconds"
+    static let menuBarDisplayModeKey = "menuBarDisplayMode"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -108,7 +109,8 @@ private enum AppPreferences {
             alert90EnabledKey: true,
             alert100EnabledKey: true,
             staleWarningsEnabledKey: true,
-            refreshIntervalSecondsKey: 180
+            refreshIntervalSecondsKey: 180,
+            menuBarDisplayModeKey: MenuBarDisplayMode.detailed.rawValue
         ])
     }
 
@@ -137,6 +139,11 @@ private enum AppPreferences {
         return TimeInterval(max(60, seconds))
     }
 
+    static var menuBarDisplayMode: MenuBarDisplayMode {
+        let rawValue = UserDefaults.standard.string(forKey: menuBarDisplayModeKey) ?? MenuBarDisplayMode.detailed.rawValue
+        return MenuBarDisplayMode(rawValue: rawValue) ?? .detailed
+    }
+
     private static func string(for key: String) -> String? {
         let trimmed = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
@@ -150,14 +157,16 @@ private final class DashboardController: ObservableObject {
     @Published private(set) var refreshError: String?
     private var refreshTask: Task<Void, Never>?
     private var autoRefreshCancellable: AnyCancellable?
+    private var preferenceCancellable: AnyCancellable?
     private var summary: UsageSummary?
     private var history = UsageHistorySeries()
     private var notifiedStaleIDs = Set<String>()
     private var lastRefreshAt = Date.distantPast
 
     init() {
-        self.model = DashboardViewModel(summary: UsageSummary(snapshots: []))
+        self.model = DashboardViewModel(summary: UsageSummary(snapshots: []), menuBarDisplayMode: AppPreferences.menuBarDisplayMode)
         startAutoRefresh()
+        observePreferences()
         refresh()
     }
 
@@ -175,7 +184,7 @@ private final class DashboardController: ObservableObject {
             let previous = self.summary
             self.summary = result.summary
             self.history.record(summary: result.summary)
-            self.model = DashboardViewModel(summary: result.summary, history: self.history.samplesBySnapshotID)
+            self.rebuildModel()
             self.refreshError = result.error
             self.deliverAlerts(for: result.summary, previous: previous)
             self.isRefreshing = false
@@ -189,6 +198,24 @@ private final class DashboardController: ObservableObject {
                 guard let self, Date().timeIntervalSince(self.lastRefreshAt) >= AppPreferences.refreshIntervalSeconds else { return }
                 self.refresh()
             }
+    }
+
+    private func observePreferences() {
+        preferenceCancellable = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    self?.rebuildModel()
+                }
+            }
+    }
+
+    private func rebuildModel() {
+        let currentSummary = summary ?? UsageSummary(snapshots: [])
+        model = DashboardViewModel(
+            summary: currentSummary,
+            history: history.samplesBySnapshotID,
+            menuBarDisplayMode: AppPreferences.menuBarDisplayMode
+        )
     }
 
     private func deliverAlerts(for current: UsageSummary, previous: UsageSummary?) {
@@ -668,7 +695,7 @@ private final class SettingsWindowController {
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 540, height: 620),
+            contentRect: NSRect(x: 0, y: 0, width: 540, height: 700),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -696,6 +723,7 @@ private struct SettingsView: View {
     @AppStorage(AppPreferences.alert100EnabledKey) private var alert100Enabled = true
     @AppStorage(AppPreferences.staleWarningsEnabledKey) private var staleWarningsEnabled = true
     @AppStorage(AppPreferences.refreshIntervalSecondsKey) private var refreshIntervalSeconds = 180
+    @AppStorage(AppPreferences.menuBarDisplayModeKey) private var menuBarDisplayMode = MenuBarDisplayMode.detailed.rawValue
 
     init() {
         _openRouterKey = State(initialValue: KeychainStore.readOpenRouterKey() ?? "")
@@ -722,6 +750,20 @@ private struct SettingsView: View {
                 EditablePlanRow(provider: "Codex", value: "Auto from account", detail: "Exact plan and quota from ~/.codex/auth.json when available.")
                 EditableTextPlanRow(provider: "Claude Code", text: $claudeCodePlanLabel, placeholder: "Free", detail: "Shown with local token estimates. Clear it if this is wrong.")
                 EditableTextPlanRow(provider: "Cursor", text: $cursorPlanOverride, placeholder: detectedCursorPlan, detail: "Detected: \(detectedCursorPlan) · \(detectedCursorStatus). Override only if needed.")
+            }
+
+            SettingsPanel {
+                Text("Menu bar")
+                    .font(.system(size: 11, weight: .semibold))
+                Picker("Display", selection: $menuBarDisplayMode) {
+                    Text("Detail").tag(MenuBarDisplayMode.detailed.rawValue)
+                    Text("Compact").tag(MenuBarDisplayMode.compact.rawValue)
+                    Text("Minimal").tag(MenuBarDisplayMode.minimal.rawValue)
+                }
+                .pickerStyle(.segmented)
+                Text("Detail includes reset time. Compact drops reset. Minimal shows only the tightest percentage.")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
 
             SettingsPanel {
@@ -803,7 +845,7 @@ private struct SettingsView: View {
             }
         }
         .padding(18)
-        .frame(width: 540, height: 620)
+        .frame(width: 540, height: 700)
     }
 
     private func pasteOpenRouterKey() {

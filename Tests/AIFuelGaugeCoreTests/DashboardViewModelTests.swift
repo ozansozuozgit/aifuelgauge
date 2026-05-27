@@ -297,6 +297,26 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.rows.first?.trendPercents, [0.2, 0.45])
     }
 
+    func testViewModelUsesConfiguredMenuBarDisplayMode() {
+        let now = Date(timeIntervalSince1970: 100)
+        let summary = UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                label: "5h",
+                used: .percent(14),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3600),
+                confidence: .exact,
+                updatedAt: now
+            )
+        ])
+
+        let model = DashboardViewModel(summary: summary, now: now, menuBarDisplayMode: .compact)
+
+        XCTAssertEqual(model.title, "Codex 5h 86% left")
+    }
+
     func testUsageHistoryPrunesMissingRowsAndKeepsRecentSamplesOnly() {
         let now = Date(timeIntervalSince1970: 100)
         var history = UsageHistorySeries(maxSamples: 2)

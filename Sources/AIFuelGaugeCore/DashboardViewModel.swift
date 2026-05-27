@@ -93,8 +93,13 @@ public struct DashboardViewModel: Equatable, Sendable {
     public let rows: [DashboardRow]
     public let state: UsageState
 
-    public init(summary: UsageSummary, now: Date = Date(), history: [String: [Double]] = [:]) {
-        self.title = summary.menuBarTitle
+    public init(
+        summary: UsageSummary,
+        now: Date = Date(),
+        history: [String: [Double]] = [:],
+        menuBarDisplayMode: MenuBarDisplayMode = .detailed
+    ) {
+        self.title = summary.menuBarTitle(mode: menuBarDisplayMode)
         self.state = summary.overallState
         self.statusLabel = Self.statusLabel(for: summary.overallState)
         self.subtitle = Self.subtitle(for: summary, now: now)

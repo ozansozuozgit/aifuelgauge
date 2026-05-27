@@ -32,6 +32,7 @@ use right now without running into a limit?
   visible without opening provider dashboards.
 - Footer controls for Refresh, Settings, and Quit.
 - Settings for editable local plan labels, warning thresholds, and refresh cadence.
+- Configurable menu bar display modes: detail, compact, or minimal.
 - Paste-friendly macOS Keychain storage for an OpenRouter API key.
 - Background refresh so opening the menu item does not block on large local logs.
 - Optional live OpenRouter polling when a key is saved in Settings.
@@ -112,6 +113,8 @@ make package
   total, API usage, and auto usage. If live usage fails, it falls back to a
   subscription label instead of showing a fake limit.
 - OpenRouter values are exact when an API key is saved in Settings.
+- Menu bar display modes control space: Detail shows provider, tightest lane,
+  percentage, and reset; Compact drops reset; Minimal shows only percentage.
 
 ## Product principle
 

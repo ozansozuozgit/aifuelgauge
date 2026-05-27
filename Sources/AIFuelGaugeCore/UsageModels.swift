@@ -46,6 +46,12 @@ public enum UsageSource: String, Codable, Equatable, Hashable, Sendable {
     case experimentalWebSession
 }
 
+public enum MenuBarDisplayMode: String, Codable, Equatable, Hashable, CaseIterable, Sendable {
+    case detailed
+    case compact
+    case minimal
+}
+
 public struct UsageAccount: Codable, Equatable, Hashable, Sendable {
     public let identifier: String
     public let displayName: String
@@ -221,6 +227,10 @@ public struct UsageSummary: Equatable, Sendable {
     }
 
     public var menuBarTitle: String {
+        menuBarTitle(mode: .detailed)
+    }
+
+    public func menuBarTitle(mode: MenuBarDisplayMode) -> String {
         guard let primarySnapshot, let percent = primarySnapshot.usagePercent else {
             return "AI usage"
         }
@@ -234,6 +244,14 @@ public struct UsageSummary: Equatable, Sendable {
             qualifier = ""
         }
         let lane = Self.menuLaneLabel(for: primarySnapshot).map { " \($0)" } ?? ""
+        switch mode {
+        case .detailed:
+            break
+        case .compact:
+            return "\(primarySnapshot.provider.shortName)\(lane) \(percentage)%\(qualifier)"
+        case .minimal:
+            return "\(percentage)%\(qualifier)"
+        }
         if let resetTitle = primarySnapshot.reset?.compactTitle {
             return "\(primarySnapshot.provider.shortName)\(lane) \(percentage)%\(qualifier) · \(resetTitle)"
         }
