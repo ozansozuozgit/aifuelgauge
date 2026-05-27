@@ -11,6 +11,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
     private let popover = NSPopover()
     private let controller = DashboardController()
     private let settingsWindowController = SettingsWindowController()
+    private let historyWindowController = HistoryWindowController()
     private var modelCancellable: AnyCancellable?
     private var appResignObserver: NSObjectProtocol?
 
@@ -31,13 +32,17 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 460, height: 550)
+        popover.contentSize = NSSize(width: 500, height: 640)
         popover.contentViewController = NSHostingController(
             rootView: DashboardView(
                 controller: controller,
                 actions: DashboardActions(
                     refresh: { [weak controller] in controller?.refresh() },
                     settings: { [weak self] in self?.settingsWindowController.show() },
+                    history: { [weak self, weak controller] in
+                        guard let dashboard = controller?.historyDashboard() else { return }
+                        self?.historyWindowController.show(dashboard: dashboard)
+                    },
                     copyDiagnostics: { [weak controller] in controller?.copyDiagnostics() },
                     quit: { NSApp.terminate(nil) }
                 )
@@ -351,6 +356,10 @@ private final class DashboardController: ObservableObject {
         NSPasteboard.general.setString(report, forType: .string)
     }
 
+    func historyDashboard() -> UsageHistoryDashboard {
+        UsageHistoryDashboard(history: history, summary: summary ?? UsageSummary(snapshots: []))
+    }
+
     private func rebuildModel() {
         let currentSummary = summary ?? UsageSummary(snapshots: [])
         model = DashboardViewModel(
@@ -458,6 +467,7 @@ private enum NotificationBridge {
 private struct DashboardActions {
     let refresh: () -> Void
     let settings: () -> Void
+    let history: () -> Void
     let copyDiagnostics: () -> Void
     let quit: () -> Void
 }
@@ -500,7 +510,7 @@ private struct DashboardView: View {
             footer
         }
         .padding(16)
-        .frame(width: 460, height: 610)
+        .frame(width: 500, height: 640)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -532,6 +542,7 @@ private struct DashboardView: View {
             Spacer(minLength: 8)
             FooterButton(title: "Refresh", systemName: "arrow.clockwise", action: actions.refresh)
             FooterButton(title: "Settings", systemName: "slider.horizontal.3", action: actions.settings)
+            FooterButton(title: "History", systemName: "chart.line.uptrend.xyaxis", action: actions.history)
             FooterButton(title: "Report", systemName: "doc.on.clipboard", action: actions.copyDiagnostics)
             FooterButton(title: "Quit", systemName: "xmark", action: actions.quit)
         }
@@ -882,6 +893,129 @@ private struct FooterButton: View {
         }
         .buttonStyle(.plain)
         .help(title)
+    }
+}
+
+@MainActor
+private final class HistoryWindowController {
+    private var window: NSWindow?
+
+    func show(dashboard: UsageHistoryDashboard) {
+        if let window {
+            window.contentView = NSHostingView(rootView: HistoryWindowView(dashboard: dashboard))
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 520),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "AI Fuel Gauge History"
+        window.center()
+        window.contentView = NSHostingView(rootView: HistoryWindowView(dashboard: dashboard))
+        window.isReleasedWhenClosed = false
+        self.window = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+private struct HistoryWindowView: View {
+    let dashboard: UsageHistoryDashboard
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(dashboard.title)
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                Text(dashboard.subtitle)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            if dashboard.items.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("No comparable history yet")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("History appears after a few refreshes from sources with known limits. It stores lane IDs, timestamps, and percentages only.")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Spacer()
+            } else {
+                ScrollView {
+                    VStack(spacing: 10) {
+                        ForEach(dashboard.items) { item in
+                            HistoryLaneCard(item: item)
+                        }
+                    }
+                    .padding(.trailing, 2)
+                }
+            }
+        }
+        .padding(18)
+        .frame(minWidth: 520, minHeight: 420)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+private struct HistoryLaneCard: View {
+    let item: UsageHistoryDashboardItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Circle()
+                    .fill(color(for: item.state))
+                    .frame(width: 8, height: 8)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                    Text(item.detail)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(item.latestValue)
+                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(color(for: item.state))
+            }
+
+            UsageSparkline(samples: item.samples, state: item.state)
+                .frame(height: 34)
+                .accessibilityLabel("\(item.title) history trend")
+
+            HStack(spacing: 8) {
+                HistoryMetricPill(text: item.peakValue)
+                HistoryMetricPill(text: item.deltaValue)
+                Spacer()
+            }
+        }
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct HistoryMetricPill: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.quaternary, in: Capsule())
     }
 }
 

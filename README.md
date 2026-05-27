@@ -33,7 +33,8 @@ use right now without running into a limit?
 - Local 7-day persisted sparklines for comparable quota rows so usage drift
   remains visible across app restarts without opening provider dashboards.
 - Trend captions under sparklines show 7-day peak and direction at a glance.
-- Footer controls for Refresh, Settings, and Quit.
+- History window for local 7-day lane trends, latest value, peak, and delta.
+- Footer controls for Refresh, Settings, History, Report, and Quit.
 - Settings for editable local plan labels, warning thresholds, and refresh cadence.
 - Per-provider alert profiles so noisy providers can be early, critical-only, or off.
 - Configurable menu bar display modes: detail, compact, or minimal.

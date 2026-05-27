@@ -517,4 +517,41 @@ final class DashboardViewModelTests: XCTestCase {
 
         XCTAssertEqual(loaded.percentsBySnapshotID, ["openRouter-key": [0.2, 0.3]])
     }
+
+    func testUsageHistoryDashboardSummarizesLocalSamples() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let summary = UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "cursor-account", displayName: "Cursor", plan: "Pro"),
+                label: "Included total",
+                used: .percent(90),
+                limit: .percent(100),
+                reset: nil,
+                confidence: .exact,
+                updatedAt: now
+            )
+        ])
+        let history = UsageHistorySeries(maxSamples: 4, samplesBySnapshotID: [
+            "cursor-cursor-account-Included total": [
+                UsageHistorySample(recordedAt: now.addingTimeInterval(-600), percent: 0.25),
+                UsageHistorySample(recordedAt: now.addingTimeInterval(-60), percent: 0.90)
+            ],
+            "openRouter-key": [
+                UsageHistorySample(recordedAt: now.addingTimeInterval(-120), percent: 0.40)
+            ]
+        ])
+
+        let dashboard = UsageHistoryDashboard(history: history, summary: summary, now: now)
+
+        XCTAssertEqual(dashboard.title, "Usage history")
+        XCTAssertEqual(dashboard.subtitle, "2 lanes · local 7-day file")
+        XCTAssertEqual(dashboard.items.map(\.title), ["Cursor · Pro · Included total", "OpenRouter Key"])
+        XCTAssertEqual(dashboard.items.map(\.latestValue), ["90%", "40%"])
+        XCTAssertEqual(dashboard.items.map(\.peakValue), ["peak 90%", "peak 40%"])
+        XCTAssertEqual(dashboard.items.map(\.deltaValue), ["+65 pts", "steady"])
+        XCTAssertEqual(dashboard.items.map(\.detail), ["2 samples · latest 1m ago", "1 sample · latest 2m ago"])
+        XCTAssertEqual(dashboard.items.map(\.state), [.critical, .safe])
+    }
 }

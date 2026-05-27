@@ -139,6 +139,136 @@ public struct UsageHistoryFileStore {
     }
 }
 
+public struct UsageHistoryDashboardItem: Equatable, Identifiable, Sendable {
+    public let id: String
+    public let title: String
+    public let detail: String
+    public let latestValue: String
+    public let peakValue: String
+    public let deltaValue: String
+    public let samples: [Double]
+    public let state: UsageState
+
+    public init(
+        id: String,
+        title: String,
+        detail: String,
+        latestValue: String,
+        peakValue: String,
+        deltaValue: String,
+        samples: [Double],
+        state: UsageState
+    ) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.latestValue = latestValue
+        self.peakValue = peakValue
+        self.deltaValue = deltaValue
+        self.samples = samples
+        self.state = state
+    }
+}
+
+public struct UsageHistoryDashboard: Equatable, Sendable {
+    public let title: String
+    public let subtitle: String
+    public let items: [UsageHistoryDashboardItem]
+
+    public init(history: UsageHistorySeries, summary: UsageSummary, now: Date = Date()) {
+        let currentSnapshotsByID = Dictionary(uniqueKeysWithValues: summary.snapshots.map { ($0.id, $0) })
+        self.title = "Usage history"
+        self.items = history.samplesBySnapshotID
+            .compactMap { snapshotID, samples -> UsageHistoryDashboardItem? in
+                let sorted = samples.sorted { $0.recordedAt < $1.recordedAt }
+                guard let latest = sorted.last else { return nil }
+                let percents = sorted.map(\.percent)
+                let firstPercent = percents.first ?? latest.percent
+                let deltaPoints = Int(((latest.percent - firstPercent) * 100).rounded())
+                let delta: String
+                if abs(deltaPoints) < 1 {
+                    delta = "steady"
+                } else if deltaPoints > 0 {
+                    delta = "+\(deltaPoints) pts"
+                } else {
+                    delta = "-\(abs(deltaPoints)) pts"
+                }
+                let title = currentSnapshotsByID[snapshotID].map(Self.titleForSnapshot) ?? Self.titleForUnknownSnapshotID(snapshotID)
+                let sampleWord = sorted.count == 1 ? "sample" : "samples"
+                return UsageHistoryDashboardItem(
+                    id: snapshotID,
+                    title: title,
+                    detail: "\(sorted.count) \(sampleWord) · latest \(Self.relativeTime(from: latest.recordedAt, now: now))",
+                    latestValue: "\(Self.percent(latest.percent))%",
+                    peakValue: "peak \(Self.percent(percents.max() ?? latest.percent))%",
+                    deltaValue: delta,
+                    samples: percents,
+                    state: Self.state(for: latest.percent)
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.state != rhs.state { return lhs.state > rhs.state }
+                return lhs.title < rhs.title
+            }
+        self.subtitle = items.isEmpty
+            ? "No comparable usage samples yet"
+            : "\(items.count) lane\(items.count == 1 ? "" : "s") · local 7-day file"
+    }
+
+    private static func titleForSnapshot(_ snapshot: UsageSnapshot) -> String {
+        let label = snapshot.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let account = snapshot.account {
+            let accountName = account.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let plan = account.plan?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if accountName.caseInsensitiveCompare(snapshot.provider.displayName) == .orderedSame,
+               let plan,
+               !plan.isEmpty {
+                if label.isEmpty || label == snapshot.provider.displayName || label == accountName {
+                    return "\(snapshot.provider.displayName) · \(plan)"
+                }
+                return "\(snapshot.provider.displayName) · \(plan) · \(label)"
+            }
+        }
+        guard !label.isEmpty, label != snapshot.provider.displayName else {
+            return snapshot.provider.displayName
+        }
+        if label.localizedCaseInsensitiveContains(snapshot.provider.displayName) {
+            return label
+        }
+        return "\(snapshot.provider.displayName) · \(label)"
+    }
+
+    private static func titleForUnknownSnapshotID(_ snapshotID: String) -> String {
+        snapshotID
+            .replacingOccurrences(of: "-", with: " ")
+            .split(separator: " ")
+            .map { word in word.prefix(1).uppercased() + String(word.dropFirst()) }
+            .joined(separator: " ")
+    }
+
+    private static func percent(_ value: Double) -> Int {
+        Int((min(max(value, 0), 1) * 100).rounded())
+    }
+
+    private static func state(for percent: Double) -> UsageState {
+        if percent >= 1 { return .exhausted }
+        if percent >= 0.9 { return .critical }
+        if percent >= 0.75 { return .caution }
+        return .safe
+    }
+
+    private static func relativeTime(from date: Date, now: Date) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(date)))
+        if seconds < 45 { return "now" }
+        let minutes = max(1, seconds / 60)
+        if minutes < 60 { return "\(minutes)m ago" }
+        let hours = max(1, minutes / 60)
+        if hours < 24 { return "\(hours)h ago" }
+        let days = max(1, hours / 24)
+        return "\(days)d ago"
+    }
+}
+
 public enum DashboardDiagnosticsReport {
     public static func make(
         summary: UsageSummary,
