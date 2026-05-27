@@ -618,5 +618,14 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(dashboard.items.map(\.deltaValue), ["+65 pts", "steady"])
         XCTAssertEqual(dashboard.items.map(\.detail), ["2 samples · latest 1m ago", "1 sample · latest 2m ago"])
         XCTAssertEqual(dashboard.items.map(\.state), [.critical, .safe])
+        XCTAssertEqual(
+            dashboard.csvText,
+            """
+            snapshot_id,title,recorded_at,usage_percent
+            "cursor-cursor-account-Included total","Cursor · Pro · Included total","1970-01-01T00:06:40.000Z","25"
+            "cursor-cursor-account-Included total","Cursor · Pro · Included total","1970-01-01T00:15:40.000Z","90"
+            "openRouter-key","OpenRouter Key","1970-01-01T00:14:40.000Z","40"
+            """
+        )
     }
 }

@@ -976,15 +976,30 @@ private final class HistoryWindowController {
 
 private struct HistoryWindowView: View {
     let dashboard: UsageHistoryDashboard
+    @State private var copyMessage = "CSV includes lane IDs, timestamps, and percentages only."
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(dashboard.title)
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                Text(dashboard.subtitle)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(dashboard.title)
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    Text(dashboard.subtitle)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Text(copyMessage)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary.opacity(0.75))
+                }
+                Spacer()
+                Button {
+                    copyCSV()
+                } label: {
+                    Label("Copy CSV", systemImage: "tablecells")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .buttonStyle(.bordered)
+                .disabled(dashboard.items.isEmpty)
             }
 
             if dashboard.items.isEmpty {
@@ -1014,6 +1029,12 @@ private struct HistoryWindowView: View {
         .padding(18)
         .frame(minWidth: 520, minHeight: 420)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private func copyCSV() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(dashboard.csvText, forType: .string)
+        copyMessage = "Copied CSV to clipboard."
     }
 }
 

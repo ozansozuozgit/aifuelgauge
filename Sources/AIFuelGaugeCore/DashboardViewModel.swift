@@ -173,11 +173,13 @@ public struct UsageHistoryDashboardItem: Equatable, Identifiable, Sendable {
 public struct UsageHistoryDashboard: Equatable, Sendable {
     public let title: String
     public let subtitle: String
+    public let csvText: String
     public let items: [UsageHistoryDashboardItem]
 
     public init(history: UsageHistorySeries, summary: UsageSummary, now: Date = Date()) {
         let currentSnapshotsByID = Dictionary(uniqueKeysWithValues: summary.snapshots.map { ($0.id, $0) })
         self.title = "Usage history"
+        self.csvText = Self.csvText(for: history, currentSnapshotsByID: currentSnapshotsByID)
         self.items = history.samplesBySnapshotID
             .compactMap { snapshotID, samples -> UsageHistoryDashboardItem? in
                 let sorted = samples.sorted { $0.recordedAt < $1.recordedAt }
@@ -213,6 +215,42 @@ public struct UsageHistoryDashboard: Equatable, Sendable {
         self.subtitle = items.isEmpty
             ? "No comparable usage samples yet"
             : "\(items.count) lane\(items.count == 1 ? "" : "s") · local 7-day file"
+    }
+
+    private static func csvText(for history: UsageHistorySeries, currentSnapshotsByID: [String: UsageSnapshot]) -> String {
+        let rows = history.samplesBySnapshotID.flatMap { snapshotID, samples -> [(String, String, UsageHistorySample)] in
+            let title = currentSnapshotsByID[snapshotID].map(titleForSnapshot) ?? titleForUnknownSnapshotID(snapshotID)
+            return samples.sorted { $0.recordedAt < $1.recordedAt }.map { sample in
+                (snapshotID, title, sample)
+            }
+        }
+        .sorted { lhs, rhs in
+            if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
+            if lhs.2.recordedAt != rhs.2.recordedAt { return lhs.2.recordedAt < rhs.2.recordedAt }
+            return lhs.0 < rhs.0
+        }
+
+        var lines = ["snapshot_id,title,recorded_at,usage_percent"]
+        lines.append(contentsOf: rows.map { snapshotID, title, sample in
+            [
+                csvCell(snapshotID),
+                csvCell(title),
+                csvCell(iso8601(sample.recordedAt)),
+                csvCell(String(percent(sample.percent)))
+            ].joined(separator: ",")
+        })
+        return lines.joined(separator: "\n")
+    }
+
+    private static func csvCell(_ value: String) -> String {
+        let escaped = value.replacingOccurrences(of: "\"", with: "\"\"")
+        return "\"\(escaped)\""
+    }
+
+    private static func iso8601(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
     }
 
     private static func titleForSnapshot(_ snapshot: UsageSnapshot) -> String {
