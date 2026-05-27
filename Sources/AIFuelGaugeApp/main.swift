@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Security
 import SwiftUI
+import UserNotifications
 import AIFuelGaugeCore
 
 @MainActor
@@ -14,6 +15,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        NotificationBridge.requestAuthorization()
 
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.title = controller.model.title
@@ -26,7 +28,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         popover.behavior = .semitransient
-        popover.contentSize = NSSize(width: 420, height: 390)
+        popover.contentSize = NSSize(width: 460, height: 500)
         popover.contentViewController = NSHostingController(
             rootView: DashboardView(
                 controller: controller,
@@ -58,15 +60,17 @@ private final class DashboardController: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var refreshError: String?
     private var refreshTask: Task<Void, Never>?
+    private var autoRefreshCancellable: AnyCancellable?
+    private var summary: UsageSummary?
+    private var notifiedStaleIDs = Set<String>()
+    private let alertPlanner = UsageAlertPlanner()
 
     init() {
         self.model = DashboardViewModel(summary: UsageSummary(snapshots: []))
+        startAutoRefresh()
         refresh()
     }
 
-    deinit {
-        refreshTask?.cancel()
-    }
 
     func refresh() {
         guard !isRefreshing else { return }
@@ -74,15 +78,38 @@ private final class DashboardController: ObservableObject {
         refreshError = nil
         refreshTask?.cancel()
         refreshTask = Task { [weak self] in
-            let result = await Self.loadModelOffMain()
+            let result = await Self.loadUsageOffMain()
             guard !Task.isCancelled else { return }
-            self?.model = result.model
-            self?.refreshError = result.error
-            self?.isRefreshing = false
+            guard let self else { return }
+            let previous = self.summary
+            self.summary = result.summary
+            self.model = DashboardViewModel(summary: result.summary)
+            self.refreshError = result.error
+            self.deliverAlerts(for: result.summary, previous: previous)
+            self.isRefreshing = false
         }
     }
 
-    private static func loadModelOffMain() async -> (model: DashboardViewModel, error: String?) {
+    private func startAutoRefresh() {
+        autoRefreshCancellable = Timer.publish(every: 180, tolerance: 15, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.refresh()
+            }
+    }
+
+    private func deliverAlerts(for current: UsageSummary, previous: UsageSummary?) {
+        let crossingAlerts = alertPlanner.alerts(previous: previous, current: current)
+        let staleAlerts = alertPlanner.staleAlerts(summary: current, now: Date(), maxAge: 600)
+            .filter { notifiedStaleIDs.insert($0.identifier).inserted }
+        let currentIDs = Set(current.snapshots.map(\.id))
+        notifiedStaleIDs = notifiedStaleIDs.filter { staleID in
+            currentIDs.contains(staleID.replacingOccurrences(of: "-stale", with: ""))
+        }
+        NotificationBridge.deliver(crossingAlerts + staleAlerts)
+    }
+
+    private static func loadUsageOffMain() async -> (summary: UsageSummary, error: String?) {
         await Task.detached(priority: .userInitiated) {
             var snapshots: [UsageSnapshot] = []
             var warnings: [String] = []
@@ -108,8 +135,31 @@ private final class DashboardController: ObservableObject {
             }
 
             let summary = UsageSummary(snapshots: snapshots)
-            return (DashboardViewModel(summary: summary), warnings.isEmpty ? nil : warnings.joined(separator: " · "))
+            return (summary, warnings.isEmpty ? nil : warnings.joined(separator: " · "))
         }.value
+    }
+}
+
+private enum NotificationBridge {
+    private static var canUseUserNotifications: Bool {
+        Bundle.main.bundleURL.pathExtension == "app"
+    }
+
+    static func requestAuthorization() {
+        guard canUseUserNotifications else { return }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    static func deliver(_ alerts: [UsageAlertEvent]) {
+        guard canUseUserNotifications, !alerts.isEmpty else { return }
+        for alert in alerts {
+            let content = UNMutableNotificationContent()
+            content.title = alert.title
+            content.body = alert.body
+            content.sound = alert.state >= .critical ? .default : nil
+            let request = UNNotificationRequest(identifier: alert.identifier, content: content, trigger: nil)
+            UNUserNotificationCenter.current().add(request)
+        }
     }
 }
 
@@ -147,13 +197,13 @@ private struct DashboardView: View {
                         }
                     }
                 }
-                .frame(maxHeight: 142)
+                .frame(maxHeight: 230)
                 .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             footer
         }
         .padding(16)
-        .frame(width: 420, height: 390)
+        .frame(width: 460, height: 500)
         .background(.regularMaterial)
     }
 
@@ -309,28 +359,69 @@ private struct SourceRowView: View {
     let row: DashboardRow
 
     var body: some View {
-        HStack(spacing: 9) {
-            Circle()
-                .fill(color(for: row.state))
-                .frame(width: 7, height: 7)
-                .overlay(Circle().stroke(.white.opacity(0.35), lineWidth: 0.5))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(row.title)
-                    .font(.system(size: 12, weight: .semibold))
-                Text(row.detail)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 9) {
+                Circle()
+                    .fill(color(for: row.state))
+                    .frame(width: 7, height: 7)
+                    .overlay(Circle().stroke(.white.opacity(0.35), lineWidth: 0.5))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(row.title)
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(row.detail)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 8)
+                Text(row.value)
+                    .font(.system(size: 11, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(row.state == .unknown ? .secondary : .primary)
+                    .lineLimit(1)
+            }
+            if let percent = row.meterPercent {
+                MiniMeter(percent: percent, label: row.meterLabel ?? "quota lane", state: row.state)
+                    .padding(.leading, 16)
+            }
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: row.confidence == .exact ? "checkmark.seal.fill" : "info.circle.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(color(for: row.state).opacity(row.confidence == .unknown ? 0.65 : 0.95))
+                    .frame(width: 10)
+                Text(row.explanation)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary.opacity(0.82))
                     .lineLimit(2)
             }
-            Spacer(minLength: 8)
-            Text(row.value)
-                .font(.system(size: 11, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(row.state == .unknown ? .secondary : .primary)
-                .lineLimit(1)
+            .padding(.leading, 16)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.vertical, 10)
+    }
+}
+
+private struct MiniMeter: View {
+    let percent: Double
+    let label: String
+    let state: UsageState
+
+    var body: some View {
+        HStack(spacing: 8) {
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.quaternary)
+                    Capsule()
+                        .fill(color(for: state).opacity(0.88))
+                        .frame(width: max(5, proxy.size.width * min(max(percent, 0), 1)))
+                }
+            }
+            .frame(height: 5)
+            Text(label)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(color(for: state))
+                .lineLimit(1)
+        }
     }
 }
 

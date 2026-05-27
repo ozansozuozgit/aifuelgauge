@@ -41,6 +41,11 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.rows.map(\.title), ["OpenRouter · main", "Claude Code"])
         XCTAssertEqual(model.rows.map(\.value), ["76% used", "460 tokens"])
         XCTAssertEqual(model.rows.map(\.detail), ["24 credits left · resets 1h · Exact · API · 1m ago", "in 100 · out 20 · cache 340 · Estimated · local · 1m ago"])
+        XCTAssertEqual(model.rows[0].meterPercent, 0.76)
+        XCTAssertEqual(model.rows[0].meterLabel, "24 credits left")
+        XCTAssertEqual(model.rows[0].explanation, "Exact from official OpenRouter API. Shows comparable credits with remaining capacity and refresh freshness.")
+        XCTAssertEqual(model.rows[1].meterPercent, nil)
+        XCTAssertEqual(model.rows[1].explanation, "Estimated from local Claude Code usage metadata. Token totals are approximate and no prompt text is stored.")
     }
 
     func testFormatsLargeTokenCountsAndUnknownRowsWithoutScaryRawNumbers() {

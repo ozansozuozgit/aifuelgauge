@@ -25,14 +25,20 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
     public let title: String
     public let value: String
     public let detail: String
+    public let explanation: String
+    public let meterPercent: Double?
+    public let meterLabel: String?
     public let confidence: Confidence
     public let state: UsageState
 
-    public init(id: String, title: String, value: String, detail: String, confidence: Confidence, state: UsageState) {
+    public init(id: String, title: String, value: String, detail: String, explanation: String, meterPercent: Double?, meterLabel: String?, confidence: Confidence, state: UsageState) {
         self.id = id
         self.title = title
         self.value = value
         self.detail = detail
+        self.explanation = explanation
+        self.meterPercent = meterPercent
+        self.meterLabel = meterLabel
         self.confidence = confidence
         self.state = state
     }
@@ -69,6 +75,9 @@ public struct DashboardViewModel: Equatable, Sendable {
                     title: Self.rowTitle(for: snapshot),
                     value: Self.value(for: snapshot),
                     detail: Self.detail(for: snapshot, now: now),
+                    explanation: Self.explanation(for: snapshot),
+                    meterPercent: snapshot.usagePercent.map { min(max($0, 0), 1) },
+                    meterLabel: Self.remainingLabel(for: snapshot),
                     confidence: snapshot.confidence,
                     state: snapshot.state
                 )
@@ -183,6 +192,27 @@ public struct DashboardViewModel: Equatable, Sendable {
         let cache = cacheRead + cacheWrite
         if input + output + cache == 0 { return nil }
         return "in \(compact(input)) · out \(compact(output)) · cache \(compact(cache))"
+    }
+
+    private static func explanation(for snapshot: UsageSnapshot) -> String {
+        switch (snapshot.provider, snapshot.source, snapshot.confidence) {
+        case (.openRouter, .officialAPI, .exact):
+            return "Exact from official OpenRouter API. Shows comparable credits with remaining capacity and refresh freshness."
+        case (.codex, .localLogs, .exact):
+            return "Exact from local Codex rate-limit metadata. Reads quota window, reset time, and percent without prompt text."
+        case (.claudeCode, .localLogs, .estimated):
+            return "Estimated from local Claude Code usage metadata. Token totals are approximate and no prompt text is stored."
+        case (.openCode, .localLogs, .unknown):
+            return "Detected OpenCode locally, but usage parsing is not wired yet. Treat this lane as setup needed."
+        case (_, .officialAPI, .exact):
+            return "Exact from the provider API. Shows comparable quota data and refresh freshness."
+        case (_, .localLogs, .estimated):
+            return "Estimated from local usage metadata. Good for trend awareness, not a hard provider limit."
+        case (_, .localLogs, .exact):
+            return "Exact from local rate-limit metadata exposed by the tool. No prompt text is stored."
+        default:
+            return "Source is detected, but the app cannot yet prove a comparable limit."
+        }
     }
 
     private static func detail(for snapshot: UsageSnapshot, now: Date) -> String {

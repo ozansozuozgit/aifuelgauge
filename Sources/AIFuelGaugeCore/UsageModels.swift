@@ -221,3 +221,95 @@ public struct ThresholdTracker: Equatable, Sendable {
         }
     }
 }
+
+public struct UsageAlertEvent: Equatable, Sendable {
+    public let identifier: String
+    public let title: String
+    public let body: String
+    public let thresholdPercent: Double?
+    public let provider: Provider
+    public let state: UsageState
+
+    public init(identifier: String, title: String, body: String, thresholdPercent: Double?, provider: Provider, state: UsageState) {
+        self.identifier = identifier
+        self.title = title
+        self.body = body
+        self.thresholdPercent = thresholdPercent
+        self.provider = provider
+        self.state = state
+    }
+}
+
+public struct UsageAlertPlanner: Equatable, Sendable {
+    public let thresholds: [Double]
+
+    public init(thresholds: [Double] = [0.75, 0.9, 1.0]) {
+        self.thresholds = thresholds.sorted()
+    }
+
+    public func alerts(previous: UsageSummary?, current: UsageSummary) -> [UsageAlertEvent] {
+        guard let previous else { return [] }
+        let previousByID = Dictionary(uniqueKeysWithValues: previous.snapshots.map { ($0.id, $0) })
+        let tracker = ThresholdTracker(thresholds: thresholds)
+        return current.snapshots.flatMap { snapshot -> [UsageAlertEvent] in
+            guard let currentPercent = snapshot.usagePercent,
+                  let previousPercent = previousByID[snapshot.id]?.usagePercent else {
+                return []
+            }
+            return tracker.crossedThresholds(previous: previousPercent, current: currentPercent).map { threshold in
+                quotaAlert(for: snapshot, currentPercent: currentPercent, threshold: threshold)
+            }
+        }
+    }
+
+    public func staleAlerts(summary: UsageSummary, now: Date, maxAge: TimeInterval = 300) -> [UsageAlertEvent] {
+        summary.snapshots.compactMap { snapshot in
+            let age = now.timeIntervalSince(snapshot.updatedAt)
+            guard age > maxAge else { return nil }
+            return UsageAlertEvent(
+                identifier: "\(snapshot.id)-stale",
+                title: "\(displayTitle(for: snapshot)) is stale",
+                body: "Last update was \(relativeAge(age)). Refresh or check the connector.",
+                thresholdPercent: nil,
+                provider: snapshot.provider,
+                state: .unknown
+            )
+        }
+    }
+
+    private func quotaAlert(for snapshot: UsageSnapshot, currentPercent: Double, threshold: Double) -> UsageAlertEvent {
+        let percentUsed = Int((currentPercent * 100).rounded())
+        let thresholdPercent = Int((threshold * 100).rounded())
+        let remaining = max(0, Int(((1 - currentPercent) * 100).rounded()))
+        let reset = snapshot.reset?.compactTitle.map { " · resets in \($0)" } ?? ""
+        return UsageAlertEvent(
+            identifier: "\(snapshot.id)-\(thresholdPercent)",
+            title: "\(displayTitle(for: snapshot)) is at \(percentUsed)%",
+            body: "\(remaining)% left\(reset)",
+            thresholdPercent: threshold,
+            provider: snapshot.provider,
+            state: snapshot.state
+        )
+    }
+
+    private func displayTitle(for snapshot: UsageSnapshot) -> String {
+        let label = snapshot.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty, label != snapshot.provider.displayName else {
+            return snapshot.provider.displayName
+        }
+        if label.localizedCaseInsensitiveContains(snapshot.provider.displayName) {
+            return label
+        }
+        return "\(snapshot.provider.displayName) · \(label)"
+    }
+
+    private func relativeAge(_ age: TimeInterval) -> String {
+        let seconds = max(0, Int(age))
+        if seconds < 45 { return "now" }
+        let minutes = max(1, seconds / 60)
+        if minutes < 60 { return "\(minutes)m ago" }
+        let hours = max(1, minutes / 60)
+        if hours < 24 { return "\(hours)h ago" }
+        return "\(max(1, hours / 24))d ago"
+    }
+}
