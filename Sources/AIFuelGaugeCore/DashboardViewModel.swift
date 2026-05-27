@@ -172,6 +172,13 @@ public struct DashboardViewModel: Equatable, Sendable {
 
     private static func rowTitle(for snapshot: UsageSnapshot) -> String {
         let label = snapshot.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let account = snapshot.account {
+            let accountTitle = account.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            if label.isEmpty || label == snapshot.provider.displayName || label == accountTitle {
+                return "\(snapshot.provider.displayName) · \(accountTitle)"
+            }
+            return "\(snapshot.provider.displayName) · \(accountTitle) · \(label)"
+        }
         guard !label.isEmpty, label != snapshot.provider.displayName else {
             return snapshot.provider.displayName
         }
@@ -213,6 +220,11 @@ public struct DashboardViewModel: Equatable, Sendable {
         return "in \(compact(input)) · out \(compact(output)) · cache \(compact(cache))"
     }
 
+    private static func lastSeenPercent(for snapshot: UsageSnapshot) -> Int? {
+        guard case .percent(let value) = snapshot.used else { return nil }
+        return Int(value.rounded())
+    }
+
     private static func explanation(for snapshot: UsageSnapshot) -> String {
         switch (snapshot.provider, snapshot.source, snapshot.confidence) {
         case (.openRouter, .officialAPI, .exact):
@@ -220,7 +232,8 @@ public struct DashboardViewModel: Equatable, Sendable {
         case (.codex, .localLogs, .exact):
             return "Exact from local Codex rate-limit metadata. Reads quota window, reset time, and percent without prompt text."
         case (.codex, .localLogs, .unknown):
-            return "Last local Codex \(snapshot.label) window has expired. Waiting for a fresh Codex rate-limit event; not showing the stale percent as current usage."
+            let lastSeen = lastSeenPercent(for: snapshot).map { "Last seen \($0)% used before reset. " } ?? ""
+            return "\(lastSeen)Waiting for Codex to emit a fresh \(snapshot.label) quota event; not showing expired data as current."
         case (.claudeCode, .localLogs, .estimated):
             return "Estimated from local Claude Code usage metadata. Token totals are approximate and no prompt text is stored."
         case (.openCode, .localLogs, .unknown):
@@ -237,6 +250,9 @@ public struct DashboardViewModel: Equatable, Sendable {
     }
 
     private static func detail(for snapshot: UsageSnapshot, now: Date) -> String {
+        if snapshot.provider == .codex, snapshot.source == .localLogs, snapshot.confidence == .unknown {
+            return "Expired window · local · last event \(relativeTime(from: snapshot.updatedAt, now: now))"
+        }
         var parts: [String] = []
         if let remaining = remainingLabel(for: snapshot) {
             parts.append(remaining)
@@ -258,6 +274,9 @@ public struct DashboardViewModel: Equatable, Sendable {
         }
 
         if snapshot.confidence == .unknown {
+            if snapshot.provider == .codex, snapshot.source == .localLogs {
+                return "Waiting"
+            }
             return "No data"
         }
 

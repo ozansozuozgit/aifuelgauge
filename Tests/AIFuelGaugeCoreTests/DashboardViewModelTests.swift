@@ -84,9 +84,9 @@ final class DashboardViewModelTests: XCTestCase {
         ]), now: now)
 
         XCTAssertEqual(model.rows.map(\.title), ["Claude Code", "Codex · 5h", "OpenCode"])
-        XCTAssertEqual(model.rows.map(\.value), ["2.86B tokens", "No data", "No data"])
-        XCTAssertEqual(model.rows.map(\.detail), ["in 2.00B · out 800.00M · cache 62.39M · Estimated · local · now", "Unknown · local · 1m ago", "Unknown · local · now"])
-        XCTAssertEqual(model.rows[1].explanation, "Last local Codex 5h window has expired. Waiting for a fresh Codex rate-limit event; not showing the stale percent as current usage.")
+        XCTAssertEqual(model.rows.map(\.value), ["2.86B tokens", "Waiting", "No data"])
+        XCTAssertEqual(model.rows.map(\.detail), ["in 2.00B · out 800.00M · cache 62.39M · Estimated · local · now", "Expired window · local · last event 1m ago", "Unknown · local · now"])
+        XCTAssertEqual(model.rows[1].explanation, "Last seen 17% used before reset. Waiting for Codex to emit a fresh 5h quota event; not showing expired data as current.")
         XCTAssertNil(model.primaryGauge)
     }
 
@@ -117,6 +117,38 @@ final class DashboardViewModelTests: XCTestCase {
 
         XCTAssertEqual(Set(model.rows.map(\.id)).count, 2)
         XCTAssertEqual(model.rows.map(\.title), ["OpenRouter credits", "OpenRouter key"])
+    }
+
+    func testSameProviderSameLaneCanRepresentMultipleSubscriptions() {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .claude,
+                source: .officialAPI,
+                account: UsageAccount(identifier: "personal", displayName: "Personal", plan: "Pro"),
+                label: "5h",
+                used: .percent(62),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3600),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .claude,
+                source: .officialAPI,
+                account: UsageAccount(identifier: "work", displayName: "Work", plan: "Team"),
+                label: "5h",
+                used: .percent(28),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3600),
+                confidence: .exact,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        XCTAssertEqual(Set(model.rows.map(\.id)).count, 2)
+        XCTAssertEqual(model.rows.map(\.id).sorted(), ["claude-personal-5h", "claude-work-5h"])
+        XCTAssertEqual(model.rows.map(\.title), ["Claude · Personal · Pro · 5h", "Claude · Work · Team · 5h"])
     }
 
     func testLongResetsUseCalendarCopyAndInsightRecommendsBestLane() {

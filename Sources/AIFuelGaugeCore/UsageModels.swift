@@ -46,6 +46,25 @@ public enum UsageSource: String, Codable, Equatable, Hashable, Sendable {
     case experimentalWebSession
 }
 
+public struct UsageAccount: Codable, Equatable, Hashable, Sendable {
+    public let identifier: String
+    public let displayName: String
+    public let plan: String?
+
+    public init(identifier: String, displayName: String, plan: String? = nil) {
+        self.identifier = identifier
+        self.displayName = displayName
+        self.plan = plan
+    }
+
+    public var displayTitle: String {
+        guard let plan, !plan.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return displayName
+        }
+        return "\(displayName) · \(plan)"
+    }
+}
+
 public enum Confidence: String, Codable, Equatable, Hashable, Sendable {
     case exact
     case estimated
@@ -124,9 +143,14 @@ public enum ResetInfo: Codable, Equatable, Hashable, Sendable {
 }
 
 public struct UsageSnapshot: Codable, Equatable, Hashable, Identifiable, Sendable {
-    public var id: String { "\(provider.rawValue)-\(label)" }
+    public var id: String {
+        [provider.rawValue, account?.identifier, label]
+            .compactMap { $0 }
+            .joined(separator: "-")
+    }
     public let provider: Provider
     public let source: UsageSource
+    public let account: UsageAccount?
     public let label: String
     public let used: UsageQuantity
     public let limit: UsageQuantity?
@@ -137,6 +161,7 @@ public struct UsageSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
     public init(
         provider: Provider,
         source: UsageSource,
+        account: UsageAccount? = nil,
         label: String,
         used: UsageQuantity,
         limit: UsageQuantity?,
@@ -146,6 +171,7 @@ public struct UsageSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
     ) {
         self.provider = provider
         self.source = source
+        self.account = account
         self.label = label
         self.used = used
         self.limit = limit
