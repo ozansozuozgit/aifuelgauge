@@ -26,7 +26,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         popover.behavior = .semitransient
-        popover.contentSize = NSSize(width: 360, height: 300)
+        popover.contentSize = NSSize(width: 420, height: 390)
         popover.contentViewController = NSHostingController(
             rootView: DashboardView(
                 controller: controller,
@@ -128,7 +128,7 @@ private struct DashboardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
-            Divider().opacity(0.65)
+            InsightStrip(text: model.insight, state: model.state)
             if let gauge = model.primaryGauge {
                 PrimaryGaugeView(gauge: gauge)
             } else {
@@ -137,20 +137,23 @@ private struct DashboardView: View {
             if model.rows.isEmpty {
                 EmptySourcesView()
             } else {
-                VStack(spacing: 0) {
-                    ForEach(model.rows) { row in
-                        SourceRowView(row: row)
-                        if row.id != model.rows.last?.id {
-                            Divider().padding(.leading, 20).opacity(0.45)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(model.rows) { row in
+                            SourceRowView(row: row)
+                            if row.id != model.rows.last?.id {
+                                Divider().padding(.leading, 20).opacity(0.45)
+                            }
                         }
                     }
                 }
+                .frame(maxHeight: 142)
                 .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             footer
         }
         .padding(16)
-        .frame(width: 360, height: 300)
+        .frame(width: 420, height: 390)
         .background(.regularMaterial)
     }
 
@@ -168,9 +171,14 @@ private struct DashboardView: View {
         }
     }
 
+    private var footerStatusText: String {
+        if controller.isRefreshing { return "Refreshing usage · \(model.trustDigest)" }
+        return "\(model.footerNote) · \(model.trustDigest)"
+    }
+
     private var footer: some View {
         HStack(spacing: 8) {
-            Text(controller.refreshError ?? (controller.isRefreshing ? "Refreshing local usage…" : model.footerNote))
+            Text(controller.refreshError ?? footerStatusText)
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(controller.refreshError == nil ? Color.secondary.opacity(0.60) : Color.red)
                 .lineLimit(1)
@@ -180,6 +188,42 @@ private struct DashboardView: View {
             FooterButton(title: "Quit", action: actions.quit)
         }
         .padding(.top, 1)
+    }
+}
+
+private struct InsightStrip: View {
+    let text: String
+    let state: UsageState
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: iconName)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(color(for: state))
+                .frame(width: 18)
+            Text(text)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.primary.opacity(0.86))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 9)
+        .background(color(for: state).opacity(0.10), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(color(for: state).opacity(0.20), lineWidth: 1)
+        )
+    }
+
+    private var iconName: String {
+        switch state {
+        case .safe: "bolt.fill"
+        case .caution: "speedometer"
+        case .critical, .exhausted: "exclamationmark.triangle.fill"
+        case .unknown: "sparkles"
+        }
     }
 }
 
@@ -211,6 +255,15 @@ private struct PrimaryGaugeView: View {
                 }
             }
             .frame(height: 7)
+            HStack {
+                Text(gauge.caption)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(color(for: gauge.state))
+                Spacer()
+                Text("Used")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary.opacity(0.75))
+            }
         }
         .padding(12)
         .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -267,7 +320,7 @@ private struct SourceRowView: View {
                 Text(row.detail)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
             Spacer(minLength: 8)
             Text(row.value)
@@ -384,7 +437,7 @@ private struct SettingsView: View {
                 Button("Save key") {
                     do {
                         try KeychainStore.saveOpenRouterKey(openRouterKey)
-                        message = "OpenRouter key saved. Refresh to use it when API polling is wired."
+                        message = "OpenRouter key saved. Refresh will use it for live API polling."
                     } catch {
                         message = "Could not save key: \(error.localizedDescription)"
                     }

@@ -52,4 +52,18 @@ final class LocalAgentUsageTests: XCTestCase {
         XCTAssertEqual(snapshot.reset, .rollingWindow(secondsRemaining: 600))
         XCTAssertEqual(snapshot.state, .caution)
     }
+
+    func testParsesCodexPrimaryAndWeeklyRateLimitLanes() throws {
+        let lines = [
+            """
+            {"timestamp":"2026-05-26T12:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":17.0,"window_minutes":300,"resets_at":2600},"secondary":{"used_percent":42.0,"window_minutes":10080,"resets_at":5000}}}}
+            """
+        ]
+
+        let snapshots = try CodexJSONLUsageParser(now: { Date(timeIntervalSince1970: 2000) }).parseRateLimits(lines: lines)
+
+        XCTAssertEqual(snapshots.map(\.label), ["5h", "Weekly"])
+        XCTAssertEqual(snapshots.map(\.used), [.percent(17), .percent(42)])
+        XCTAssertEqual(snapshots.map(\.reset), [.rollingWindow(secondsRemaining: 600), .rollingWindow(secondsRemaining: 3000)])
+    }
 }

@@ -4,14 +4,16 @@ public struct DashboardGauge: Equatable, Sendable {
     public let title: String
     public let value: String
     public let subtitle: String
+    public let caption: String
     public let percent: Double
     public let state: UsageState
     public let confidence: Confidence
 
-    public init(title: String, value: String, subtitle: String, percent: Double, state: UsageState, confidence: Confidence) {
+    public init(title: String, value: String, subtitle: String, caption: String, percent: Double, state: UsageState, confidence: Confidence) {
         self.title = title
         self.value = value
         self.subtitle = subtitle
+        self.caption = caption
         self.percent = percent
         self.state = state
         self.confidence = confidence
@@ -39,6 +41,8 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
 public struct DashboardViewModel: Equatable, Sendable {
     public let title: String
     public let subtitle: String
+    public let insight: String
+    public let trustDigest: String
     public let statusLabel: String
     public let footerNote: String
     public let primaryGauge: DashboardGauge?
@@ -50,6 +54,8 @@ public struct DashboardViewModel: Equatable, Sendable {
         self.state = summary.overallState
         self.statusLabel = Self.statusLabel(for: summary.overallState)
         self.subtitle = Self.subtitle(for: summary, now: now)
+        self.insight = Self.insight(for: summary)
+        self.trustDigest = Self.trustDigest(for: summary)
         self.footerNote = "Local monitoring · No cloud sync"
         self.primaryGauge = summary.primarySnapshot.flatMap { Self.gauge(for: $0) }
         self.rows = summary.snapshots
@@ -60,7 +66,7 @@ public struct DashboardViewModel: Equatable, Sendable {
             .map { snapshot in
                 DashboardRow(
                     id: snapshot.id,
-                    title: snapshot.provider.displayName,
+                    title: Self.rowTitle(for: snapshot),
                     value: Self.value(for: snapshot),
                     detail: Self.detail(for: snapshot, now: now),
                     confidence: snapshot.confidence,
@@ -75,9 +81,10 @@ public struct DashboardViewModel: Equatable, Sendable {
         let reset = snapshot.reset?.compactTitle.map { "resets in \($0)" } ?? "live quota"
         let value = "\(Int((usagePercent * 100).rounded()))%"
         return DashboardGauge(
-            title: snapshot.provider.displayName,
+            title: Self.rowTitle(for: snapshot),
             value: value,
             subtitle: "\(confidenceLabel(snapshot.confidence)) · \(reset)",
+            caption: remainingLabel(for: snapshot) ?? "Limit window active",
             percent: clamped,
             state: snapshot.state,
             confidence: snapshot.confidence
@@ -101,11 +108,96 @@ public struct DashboardViewModel: Equatable, Sendable {
         }
     }
 
+    private static func insight(for summary: UsageSummary) -> String {
+        guard !summary.snapshots.isEmpty else {
+            return "Add one exact source, then the menu bar can warn before you stall."
+        }
+        guard let snapshot = summary.primarySnapshot, let percent = snapshot.usagePercent else {
+            let localCount = summary.snapshots.filter { $0.source == .localLogs }.count
+            return "\(localCount) local source\(localCount == 1 ? "" : "s") found. Exact limits still need metadata."
+        }
+        let remaining = max(0, Int(((1 - percent) * 100).rounded()))
+        switch snapshot.state {
+        case .safe:
+            return "Keep going. Tightest lane still has \(remaining)% headroom."
+        case .caution:
+            return "Start watching \(rowTitle(for: snapshot)): \(remaining)% left."
+        case .critical:
+            return "Save your flow. \(rowTitle(for: snapshot)) has only \(remaining)% left."
+        case .exhausted:
+            return "This lane is spent. Switch provider or wait for reset."
+        case .unknown:
+            return "Sources found, but no comparable limit yet."
+        }
+    }
+
+    private static func trustDigest(for summary: UsageSummary) -> String {
+        let exact = summary.snapshots.filter { $0.confidence == .exact }.count
+        let estimated = summary.snapshots.filter { $0.confidence == .estimated }.count
+        let unknown = summary.snapshots.filter { $0.confidence == .unknown }.count
+        var parts: [String] = []
+        if exact > 0 { parts.append("\(exact) exact") }
+        if estimated > 0 { parts.append("\(estimated) estimated") }
+        if unknown > 0 { parts.append("\(unknown) unknown") }
+        return parts.isEmpty ? "No sources" : parts.joined(separator: " · ")
+    }
+
+    private static func rowTitle(for snapshot: UsageSnapshot) -> String {
+        let label = snapshot.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty, label != snapshot.provider.displayName else {
+            return snapshot.provider.displayName
+        }
+        if label.localizedCaseInsensitiveContains(snapshot.provider.displayName) {
+            return label
+        }
+        return "\(snapshot.provider.displayName) · \(label)"
+    }
+
+    private static func remainingLabel(for snapshot: UsageSnapshot) -> String? {
+        guard let limit = snapshot.limit,
+              snapshot.used.isComparable(with: limit),
+              let used = snapshot.used.numericValueForLimitComparison,
+              let total = limit.numericValueForLimitComparison,
+              total > 0 else {
+            return nil
+        }
+        let remaining = max(0, total - used)
+        switch (snapshot.used, limit) {
+        case (.percent, .percent):
+            return "\(Int(remaining.rounded()))% left"
+        case (.credits, .credits):
+            return "\(format(remaining)) credits left"
+        case (.usd, .usd):
+            return "$\(format(remaining)) left"
+        case (.requests, .requests):
+            return "\(compact(Int(remaining.rounded()))) requests left"
+        case (.tokens, .tokens):
+            return "\(compact(Int(remaining.rounded()))) tokens left"
+        default:
+            return nil
+        }
+    }
+
+    private static func tokenBreakdown(for quantity: UsageQuantity) -> String? {
+        guard case let .tokens(input, output, cacheRead, cacheWrite) = quantity else { return nil }
+        let cache = cacheRead + cacheWrite
+        if input + output + cache == 0 { return nil }
+        return "in \(compact(input)) · out \(compact(output)) · cache \(compact(cache))"
+    }
+
     private static func detail(for snapshot: UsageSnapshot, now: Date) -> String {
-        var parts = [confidenceLabel(snapshot.confidence), sourceLabel(snapshot.source), relativeTime(from: snapshot.updatedAt, now: now)]
+        var parts: [String] = []
+        if let remaining = remainingLabel(for: snapshot) {
+            parts.append(remaining)
+        } else if let breakdown = tokenBreakdown(for: snapshot.used) {
+            parts.append(breakdown)
+        }
         if let reset = snapshot.reset?.compactTitle {
             parts.append("resets \(reset)")
         }
+        parts.append(confidenceLabel(snapshot.confidence))
+        parts.append(sourceLabel(snapshot.source))
+        parts.append(relativeTime(from: snapshot.updatedAt, now: now))
         return parts.joined(separator: " · ")
     }
 

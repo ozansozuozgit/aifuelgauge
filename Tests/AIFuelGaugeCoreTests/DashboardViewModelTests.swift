@@ -32,12 +32,15 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.title, "OR 76% · 1h")
         XCTAssertEqual(model.subtitle, "Updated 1m ago")
         XCTAssertEqual(model.statusLabel, "Watch")
-        XCTAssertEqual(model.primaryGauge?.title, "OpenRouter")
+        XCTAssertEqual(model.insight, "Start watching OpenRouter · main: 24% left.")
+        XCTAssertEqual(model.trustDigest, "1 exact · 1 estimated")
+        XCTAssertEqual(model.primaryGauge?.title, "OpenRouter · main")
         XCTAssertEqual(model.primaryGauge?.value, "76%")
         XCTAssertEqual(model.primaryGauge?.subtitle, "Exact · resets in 1h")
-        XCTAssertEqual(model.rows.map(\.title), ["OpenRouter", "Claude Code"])
+        XCTAssertEqual(model.primaryGauge?.caption, "24 credits left")
+        XCTAssertEqual(model.rows.map(\.title), ["OpenRouter · main", "Claude Code"])
         XCTAssertEqual(model.rows.map(\.value), ["76% used", "460 tokens"])
-        XCTAssertEqual(model.rows.map(\.detail), ["Exact · API · 1m ago · resets 1h", "Estimated · local · 1m ago"])
+        XCTAssertEqual(model.rows.map(\.detail), ["24 credits left · resets 1h · Exact · API · 1m ago", "in 100 · out 20 · cache 340 · Estimated · local · 1m ago"])
     }
 
     func testFormatsLargeTokenCountsAndUnknownRowsWithoutScaryRawNumbers() {
@@ -67,7 +70,7 @@ final class DashboardViewModelTests: XCTestCase {
 
         XCTAssertEqual(model.rows.map(\.title), ["Claude Code", "OpenCode"])
         XCTAssertEqual(model.rows.map(\.value), ["2.86B tokens", "No data"])
-        XCTAssertEqual(model.rows.map(\.detail), ["Estimated · local · now", "Unknown · local · now"])
+        XCTAssertEqual(model.rows.map(\.detail), ["in 2.00B · out 800.00M · cache 62.39M · Estimated · local · now", "Unknown · local · now"])
         XCTAssertNil(model.primaryGauge)
     }
 
@@ -97,6 +100,6 @@ final class DashboardViewModelTests: XCTestCase {
         ]), now: now)
 
         XCTAssertEqual(Set(model.rows.map(\.id)).count, 2)
-        XCTAssertEqual(model.rows.map(\.title), ["OpenRouter", "OpenRouter"])
+        XCTAssertEqual(model.rows.map(\.title), ["OpenRouter key", "OpenRouter credits"])
     }
 }

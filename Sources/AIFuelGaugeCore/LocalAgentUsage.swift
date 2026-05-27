@@ -110,8 +110,16 @@ public struct CodexJSONLUsageParser {
     }
 
     public func parseLatestRateLimit(lines: [String], label: String = "Codex") throws -> UsageSnapshot {
+        guard let snapshot = try parseRateLimits(lines: lines, primaryFallbackLabel: label).first else {
+            throw LocalUsageParseError.noUsageFound
+        }
+        return snapshot
+    }
+
+    public func parseRateLimits(lines: [String], primaryFallbackLabel: String = "Codex") throws -> [UsageSnapshot] {
         let decoder = JSONDecoder()
-        var latest: CodexRateLimit?
+        var latestPrimary: CodexRateLimit?
+        var latestSecondary: CodexRateLimit?
 
         for line in lines where !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             guard let data = line.data(using: .utf8),
@@ -120,22 +128,45 @@ public struct CodexJSONLUsageParser {
                 continue
             }
             if let primary = event.payload.rate_limits?.primary {
-                latest = primary
+                latestPrimary = primary
+            }
+            if let secondary = event.payload.rate_limits?.secondary {
+                latestSecondary = secondary
             }
         }
 
-        guard let latest else { throw LocalUsageParseError.noUsageFound }
-        let secondsRemaining = max(0, TimeInterval(latest.resets_at) - now().timeIntervalSince1970)
+        let generatedAt = now()
+        var snapshots: [UsageSnapshot] = []
+        if let latestPrimary {
+            snapshots.append(snapshot(for: latestPrimary, label: codexWindowLabel(for: latestPrimary) ?? primaryFallbackLabel, now: generatedAt))
+        }
+        if let latestSecondary {
+            snapshots.append(snapshot(for: latestSecondary, label: codexWindowLabel(for: latestSecondary) ?? "Weekly", now: generatedAt))
+        }
+        guard !snapshots.isEmpty else { throw LocalUsageParseError.noUsageFound }
+        return snapshots
+    }
+
+    private func snapshot(for rateLimit: CodexRateLimit, label: String, now generatedAt: Date) -> UsageSnapshot {
+        let secondsRemaining = max(0, TimeInterval(rateLimit.resets_at) - generatedAt.timeIntervalSince1970)
         return UsageSnapshot(
             provider: .codex,
             source: .localLogs,
             label: label,
-            used: .percent(latest.used_percent),
+            used: .percent(rateLimit.used_percent),
             limit: .percent(100),
             reset: .rollingWindow(secondsRemaining: secondsRemaining),
             confidence: .exact,
-            updatedAt: now()
+            updatedAt: generatedAt
         )
+    }
+
+    private func codexWindowLabel(for rateLimit: CodexRateLimit) -> String? {
+        guard let minutes = rateLimit.window_minutes, minutes > 0 else { return nil }
+        if minutes == 10_080 { return "Weekly" }
+        if minutes % 1_440 == 0 { return "\(minutes / 1_440)d" }
+        if minutes % 60 == 0 { return "\(minutes / 60)h" }
+        return "\(minutes)m"
     }
 }
 
@@ -164,8 +195,8 @@ public struct LocalUsageCollector {
                     snapshots.append(snapshot)
                 }
             case .codex:
-                if let snapshot = try? CodexJSONLUsageParser(now: now).parseLatestRateLimit(lines: readJSONLLines(recursivelyUnder: source.url), label: "Codex") {
-                    snapshots.append(snapshot)
+                if let codexSnapshots = try? CodexJSONLUsageParser(now: now).parseRateLimits(lines: readJSONLLines(recursivelyUnder: source.url)) {
+                    snapshots.append(contentsOf: codexSnapshots)
                 }
             case .openCode:
                 snapshots.append(UsageSnapshot(
