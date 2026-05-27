@@ -9,6 +9,7 @@ use right now without running into a limit?
 
 - Native macOS menu bar executable using AppKit + SwiftUI.
 - State-colored menu bar symbol for at-a-glance safe/watch/blocked status.
+- Generated app icon included in standalone `.app` bundles and release zips.
 - Next-reset timeline for the soonest active provider windows.
 - Core usage model with explicit confidence: exact, estimated, unknown.
 - OpenRouter connector for:
@@ -168,4 +169,4 @@ Do not pretend estimates are exact. The app should always distinguish:
 4. Add full 7-day history view and configurable menu bar sparklines.
 5. Add WidgetKit widgets for the active provider and tightest quota.
 6. Add Homebrew cask and signed/notarized release builds.
-7. Add a proper `.app` bundle icon.
+7. Add signed/notarized release builds.

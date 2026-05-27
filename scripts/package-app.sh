@@ -10,6 +10,7 @@ app_path="$dist_dir/$app_name.app"
 contents="$app_path/Contents"
 macos_dir="$contents/MacOS"
 resources_dir="$contents/Resources"
+iconset_path="$dist_dir/AppIcon.iconset"
 
 cd "$repo_root"
 swift build -c "$configuration" --product aifuelgauge >&2
@@ -32,6 +33,8 @@ cat > "$contents/Info.plist" <<PLIST
   <string>aifuelgauge</string>
   <key>CFBundleIdentifier</key>
   <string>$bundle_id</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
@@ -53,6 +56,9 @@ cat > "$contents/Info.plist" <<PLIST
 PLIST
 
 printf 'APPL????' > "$contents/PkgInfo"
+"$repo_root/scripts/build-app-icon.swift" "$iconset_path" >&2
+iconutil -c icns "$iconset_path" -o "$resources_dir/AppIcon.icns" >&2
+rm -rf "$iconset_path"
 
 if command -v codesign >/dev/null 2>&1; then
   codesign --force --deep --sign - "$app_path" >/dev/null 2>&1 || true
