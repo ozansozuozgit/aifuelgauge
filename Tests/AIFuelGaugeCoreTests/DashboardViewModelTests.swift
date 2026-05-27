@@ -289,10 +289,10 @@ final class DashboardViewModelTests: XCTestCase {
             )
         ])
         var history = UsageHistorySeries(maxSamples: 3)
-        history.record(summary: older)
-        history.record(summary: current)
+        history.record(summary: older, now: now)
+        history.record(summary: current, now: now.addingTimeInterval(60))
 
-        let model = DashboardViewModel(summary: current, now: now, history: history.samplesBySnapshotID)
+        let model = DashboardViewModel(summary: current, now: now, history: history.percentsBySnapshotID)
 
         XCTAssertEqual(model.rows.first?.trendPercents, [0.2, 0.45])
     }
@@ -323,34 +323,72 @@ final class DashboardViewModelTests: XCTestCase {
         history.record(summary: UsageSummary(snapshots: [
             UsageSnapshot(provider: .openRouter, source: .officialAPI, label: "key", used: .credits(10), limit: .credits(100), reset: nil, confidence: .exact, updatedAt: now),
             UsageSnapshot(provider: .cursor, source: .experimentalWebSession, label: "API usage", used: .percent(25), limit: .percent(100), reset: nil, confidence: .exact, updatedAt: now)
-        ]))
+        ]), now: now)
         history.record(summary: UsageSummary(snapshots: [
             UsageSnapshot(provider: .openRouter, source: .officialAPI, label: "key", used: .credits(20), limit: .credits(100), reset: nil, confidence: .exact, updatedAt: now)
-        ]))
+        ]), now: now.addingTimeInterval(60))
         history.record(summary: UsageSummary(snapshots: [
             UsageSnapshot(provider: .openRouter, source: .officialAPI, label: "key", used: .credits(30), limit: .credits(100), reset: nil, confidence: .exact, updatedAt: now)
-        ]))
+        ]), now: now.addingTimeInterval(120))
 
-        XCTAssertEqual(history.samplesBySnapshotID, ["openRouter-key": [0.2, 0.3]])
+        XCTAssertEqual(history.percentsBySnapshotID, ["openRouter-key": [0.2, 0.3]])
     }
 
     func testUsageHistoryFileStorePersistsBoundedSamples() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let fileURL = directory.appendingPathComponent("usage-history.json")
         let store = UsageHistoryFileStore(fileURL: fileURL, maxSamples: 2)
+        let now = Date(timeIntervalSince1970: 100)
         let history = UsageHistorySeries(maxSamples: 4, samplesBySnapshotID: [
-            "openRouter-key": [0.1, 0.2, 0.3],
-            "cursor-api": [1.0]
+            "openRouter-key": [
+                UsageHistorySample(recordedAt: now, percent: 0.1),
+                UsageHistorySample(recordedAt: now.addingTimeInterval(60), percent: 0.2),
+                UsageHistorySample(recordedAt: now.addingTimeInterval(120), percent: 0.3)
+            ],
+            "cursor-api": [UsageHistorySample(recordedAt: now, percent: 1.0)]
         ])
 
         try store.save(history)
         let loaded = store.load()
 
         XCTAssertEqual(loaded.maxSamples, 2)
-        XCTAssertEqual(loaded.samplesBySnapshotID, [
+        XCTAssertEqual(loaded.percentsBySnapshotID, [
             "cursor-api": [1.0],
             "openRouter-key": [0.2, 0.3]
         ])
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    func testUsageHistoryPrunesSamplesOlderThanRetention() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        var history = UsageHistorySeries(maxSamples: 10, retention: 120)
+        history.record(summary: UsageSummary(snapshots: [
+            UsageSnapshot(provider: .openRouter, source: .officialAPI, label: "key", used: .credits(10), limit: .credits(100), reset: nil, confidence: .exact, updatedAt: now)
+        ]), now: now.addingTimeInterval(-180))
+        history.record(summary: UsageSummary(snapshots: [
+            UsageSnapshot(provider: .openRouter, source: .officialAPI, label: "key", used: .credits(20), limit: .credits(100), reset: nil, confidence: .exact, updatedAt: now)
+        ]), now: now)
+
+        XCTAssertEqual(history.percentsBySnapshotID, ["openRouter-key": [0.2]])
+    }
+
+    func testUsageHistoryFileStoreMigratesLegacyPercentArrays() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let fileURL = directory.appendingPathComponent("usage-history.json")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(
+            """
+            {
+              "maxSamples": 96,
+              "samplesBySnapshotID": {
+                "openRouter-key": [0.1, 0.2, 0.3]
+              }
+            }
+            """.utf8
+        ).write(to: fileURL)
+
+        let loaded = UsageHistoryFileStore(fileURL: fileURL, maxSamples: 2).load()
+
+        XCTAssertEqual(loaded.percentsBySnapshotID, ["openRouter-key": [0.2, 0.3]])
     }
 }

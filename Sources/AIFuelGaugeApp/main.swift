@@ -179,7 +179,7 @@ private final class DashboardController: ObservableObject {
         self.history = loadedHistory
         self.model = DashboardViewModel(
             summary: UsageSummary(snapshots: []),
-            history: loadedHistory.samplesBySnapshotID,
+            history: loadedHistory.percentsBySnapshotID,
             menuBarDisplayMode: AppPreferences.menuBarDisplayMode
         )
         startAutoRefresh()
@@ -231,7 +231,7 @@ private final class DashboardController: ObservableObject {
         let currentSummary = summary ?? UsageSummary(snapshots: [])
         model = DashboardViewModel(
             summary: currentSummary,
-            history: history.samplesBySnapshotID,
+            history: history.percentsBySnapshotID,
             menuBarDisplayMode: AppPreferences.menuBarDisplayMode
         )
     }

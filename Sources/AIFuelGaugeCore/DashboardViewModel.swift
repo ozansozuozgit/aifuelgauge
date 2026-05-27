@@ -20,51 +20,115 @@ public struct DashboardGauge: Equatable, Sendable {
     }
 }
 
+public struct UsageHistorySample: Codable, Equatable, Sendable {
+    public let recordedAt: Date
+    public let percent: Double
+
+    public init(recordedAt: Date, percent: Double) {
+        self.recordedAt = recordedAt
+        self.percent = min(max(percent, 0), 1)
+    }
+}
+
 public struct UsageHistorySeries: Codable, Equatable, Sendable {
     public let maxSamples: Int
-    public private(set) var samplesBySnapshotID: [String: [Double]]
+    public let retention: TimeInterval
+    public private(set) var samplesBySnapshotID: [String: [UsageHistorySample]]
 
-    public init(maxSamples: Int = 24, samplesBySnapshotID: [String: [Double]] = [:]) {
+    public init(
+        maxSamples: Int = 24,
+        retention: TimeInterval = 7 * 24 * 3600,
+        samplesBySnapshotID: [String: [UsageHistorySample]] = [:]
+    ) {
         self.maxSamples = max(2, maxSamples)
-        self.samplesBySnapshotID = samplesBySnapshotID.mapValues { Array($0.suffix(max(2, maxSamples))) }
+        self.retention = max(1, retention)
+        self.samplesBySnapshotID = samplesBySnapshotID.mapValues { samples in
+            Array(samples.sorted { $0.recordedAt < $1.recordedAt }.suffix(max(2, maxSamples)))
+        }
     }
 
-    public mutating func record(summary: UsageSummary) {
+    public init(maxSamples: Int = 24, retention: TimeInterval = 7 * 24 * 3600, legacyPercentsBySnapshotID: [String: [Double]], now: Date = Date()) {
+        let migrated = legacyPercentsBySnapshotID.mapValues { percents in
+            percents.suffix(max(2, maxSamples)).enumerated().map { index, percent in
+                UsageHistorySample(recordedAt: now.addingTimeInterval(TimeInterval(index - percents.count)), percent: percent)
+            }
+        }
+        self.init(maxSamples: maxSamples, retention: retention, samplesBySnapshotID: migrated)
+    }
+
+    public var percentsBySnapshotID: [String: [Double]] {
+        samplesBySnapshotID.mapValues { samples in
+            samples.map(\.percent)
+        }
+    }
+
+    public mutating func record(summary: UsageSummary, now: Date = Date()) {
         let currentIDs = Set(summary.snapshots.map(\.id))
         samplesBySnapshotID = samplesBySnapshotID.filter { currentIDs.contains($0.key) }
         for snapshot in summary.snapshots {
             guard let usagePercent = snapshot.usagePercent, usagePercent.isFinite else { continue }
             var samples = samplesBySnapshotID[snapshot.id] ?? []
-            samples.append(min(max(usagePercent, 0), 1))
-            samplesBySnapshotID[snapshot.id] = Array(samples.suffix(maxSamples))
+            samples.append(UsageHistorySample(recordedAt: now, percent: usagePercent))
+            let cutoff = now.addingTimeInterval(-retention)
+            samplesBySnapshotID[snapshot.id] = Array(samples
+                .filter { $0.recordedAt >= cutoff }
+                .sorted { $0.recordedAt < $1.recordedAt }
+                .suffix(maxSamples))
         }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case maxSamples
+        case retention
+        case samplesBySnapshotID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let maxSamples = try container.decodeIfPresent(Int.self, forKey: .maxSamples) ?? 24
+        let retention = try container.decodeIfPresent(TimeInterval.self, forKey: .retention) ?? 7 * 24 * 3600
+        if let samples = try? container.decode([String: [UsageHistorySample]].self, forKey: .samplesBySnapshotID) {
+            self.init(maxSamples: maxSamples, retention: retention, samplesBySnapshotID: samples)
+            return
+        }
+        let legacy = try container.decodeIfPresent([String: [Double]].self, forKey: .samplesBySnapshotID) ?? [:]
+        self.init(maxSamples: maxSamples, retention: retention, legacyPercentsBySnapshotID: legacy)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(maxSamples, forKey: .maxSamples)
+        try container.encode(retention, forKey: .retention)
+        try container.encode(samplesBySnapshotID, forKey: .samplesBySnapshotID)
     }
 }
 
 public struct UsageHistoryFileStore {
     private let fileURL: URL
     private let maxSamples: Int
+    private let retention: TimeInterval
     private let fileManager: FileManager
 
-    public init(fileURL: URL, maxSamples: Int = 96, fileManager: FileManager = .default) {
+    public init(fileURL: URL, maxSamples: Int = 256, retention: TimeInterval = 7 * 24 * 3600, fileManager: FileManager = .default) {
         self.fileURL = fileURL
         self.maxSamples = max(2, maxSamples)
+        self.retention = max(1, retention)
         self.fileManager = fileManager
     }
 
     public func load() -> UsageHistorySeries {
         guard let data = try? Data(contentsOf: fileURL),
               let decoded = try? JSONDecoder().decode(UsageHistorySeries.self, from: data) else {
-            return UsageHistorySeries(maxSamples: maxSamples)
+            return UsageHistorySeries(maxSamples: maxSamples, retention: retention)
         }
-        return UsageHistorySeries(maxSamples: maxSamples, samplesBySnapshotID: decoded.samplesBySnapshotID)
+        return UsageHistorySeries(maxSamples: maxSamples, retention: retention, samplesBySnapshotID: decoded.samplesBySnapshotID)
     }
 
     public func save(_ history: UsageHistorySeries) throws {
         try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let normalized = UsageHistorySeries(maxSamples: maxSamples, samplesBySnapshotID: history.samplesBySnapshotID)
+        let normalized = UsageHistorySeries(maxSamples: maxSamples, retention: retention, samplesBySnapshotID: history.samplesBySnapshotID)
         let data = try encoder.encode(normalized)
         try data.write(to: fileURL, options: .atomic)
     }
