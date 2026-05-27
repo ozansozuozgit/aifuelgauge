@@ -1,4 +1,4 @@
-.PHONY: test run package install uninstall
+.PHONY: test run package release-zip install uninstall
 
 test:
 	swift test
@@ -8,6 +8,9 @@ run:
 
 package:
 	scripts/package-app.sh
+
+release-zip:
+	scripts/package-release-zip.sh
 
 install:
 	scripts/install-launch-agent.sh

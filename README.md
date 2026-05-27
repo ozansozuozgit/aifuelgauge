@@ -89,6 +89,21 @@ make package
 open dist
 ```
 
+Build the same zip artifact used by GitHub releases:
+
+```bash
+make release-zip
+```
+
+To publish a GitHub release, push a version tag. The release workflow runs
+tests on macOS, builds `AI Fuel Gauge.app`, uploads a zipped app artifact, and
+attaches a `.sha256` checksum.
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 This is not notarized yet. On first launch, macOS may require you to approve
 the app in Privacy & Security.
 

@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Build macOS app zip
+    runs-on: macos-14
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run tests
+        run: swift test
+
+      - name: Build release zip
+        run: VERSION="${GITHUB_REF_NAME:-manual}" scripts/package-release-zip.sh
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-fuel-gauge-macos
+          path: |
+            dist/AI-Fuel-Gauge-*.zip
+            dist/AI-Fuel-Gauge-*.zip.sha256
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/AI-Fuel-Gauge-*.zip \
+            dist/AI-Fuel-Gauge-*.zip.sha256 \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
