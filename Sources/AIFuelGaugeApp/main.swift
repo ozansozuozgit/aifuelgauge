@@ -12,6 +12,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
     private let controller = DashboardController()
     private let settingsWindowController = SettingsWindowController()
     private var modelCancellable: AnyCancellable?
+    private var appResignObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -27,7 +28,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
             self?.statusItem?.button?.title = model.title
         }
 
-        popover.behavior = .semitransient
+        popover.behavior = .transient
         popover.contentSize = NSSize(width: 460, height: 500)
         popover.contentViewController = NSHostingController(
             rootView: DashboardView(
@@ -39,6 +40,15 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
                 )
             )
         )
+        appResignObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: NSApp,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.popover.performClose(nil)
+            }
+        }
     }
 
     @objc private func togglePopover() {

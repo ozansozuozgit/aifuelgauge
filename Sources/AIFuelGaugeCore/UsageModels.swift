@@ -117,7 +117,9 @@ public enum ResetInfo: Codable, Equatable, Hashable, Sendable {
         if minutes <= 0 { return "now" }
         if minutes < 60 { return "\(minutes)m" }
         let hours = Int((Double(minutes) / 60).rounded(.down))
-        return "\(max(hours, 1))h"
+        if hours < 24 { return "\(max(hours, 1))h" }
+        let days = max(1, hours / 24)
+        return "\(days)d"
     }
 }
 

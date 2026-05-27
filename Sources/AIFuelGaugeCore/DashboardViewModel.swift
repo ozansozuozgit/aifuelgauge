@@ -60,14 +60,23 @@ public struct DashboardViewModel: Equatable, Sendable {
         self.state = summary.overallState
         self.statusLabel = Self.statusLabel(for: summary.overallState)
         self.subtitle = Self.subtitle(for: summary, now: now)
-        self.insight = Self.insight(for: summary)
+        self.insight = Self.insight(for: summary, now: now)
         self.trustDigest = Self.trustDigest(for: summary)
         self.footerNote = "Local monitoring · No cloud sync"
-        self.primaryGauge = summary.primarySnapshot.flatMap { Self.gauge(for: $0) }
+        self.primaryGauge = summary.primarySnapshot.flatMap { Self.gauge(for: $0, now: now) }
         self.rows = summary.snapshots
             .sorted { lhs, rhs in
                 if lhs.state != rhs.state { return lhs.state > rhs.state }
-                return lhs.provider.displayName < rhs.provider.displayName
+                switch (lhs.usagePercent, rhs.usagePercent) {
+                case let (left?, right?) where left != right: return left > right
+                case (_?, nil): return true
+                case (nil, _?): return false
+                default:
+                    if lhs.provider.displayName != rhs.provider.displayName {
+                        return lhs.provider.displayName < rhs.provider.displayName
+                    }
+                    return lhs.label < rhs.label
+                }
             }
             .map { snapshot in
                 DashboardRow(
@@ -84,10 +93,10 @@ public struct DashboardViewModel: Equatable, Sendable {
             }
     }
 
-    private static func gauge(for snapshot: UsageSnapshot) -> DashboardGauge? {
+    private static func gauge(for snapshot: UsageSnapshot, now: Date) -> DashboardGauge? {
         guard let usagePercent = snapshot.usagePercent else { return nil }
         let clamped = min(max(usagePercent, 0), 1)
-        let reset = snapshot.reset?.compactTitle.map { "resets in \($0)" } ?? "live quota"
+        let reset = snapshot.reset.map { resetPhrase(for: $0, now: now) } ?? "live quota"
         let value = "\(Int((usagePercent * 100).rounded()))%"
         return DashboardGauge(
             title: Self.rowTitle(for: snapshot),
@@ -117,7 +126,7 @@ public struct DashboardViewModel: Equatable, Sendable {
         }
     }
 
-    private static func insight(for summary: UsageSummary) -> String {
+    private static func insight(for summary: UsageSummary, now: Date) -> String {
         guard !summary.snapshots.isEmpty else {
             return "Add one exact source, then the menu bar can warn before you stall."
         }
@@ -126,6 +135,16 @@ public struct DashboardViewModel: Equatable, Sendable {
             return "\(localCount) local source\(localCount == 1 ? "" : "s") found. Exact limits still need metadata."
         }
         let remaining = max(0, Int(((1 - percent) * 100).rounded()))
+        let comparable = summary.snapshots.compactMap { candidate -> (UsageSnapshot, Double)? in
+            guard let value = candidate.usagePercent else { return nil }
+            return (candidate, value)
+        }
+        if snapshot.state == .safe,
+           let best = comparable.min(by: { $0.1 < $1.1 }),
+           best.0.id != snapshot.id,
+           best.0.state == .safe {
+            return "Use \(rowTitle(for: best.0)) now; \(rowTitle(for: snapshot)) is the reserve at \(remaining)% left."
+        }
         switch snapshot.state {
         case .safe:
             return "Keep going. Tightest lane still has \(remaining)% headroom."
@@ -224,8 +243,8 @@ public struct DashboardViewModel: Equatable, Sendable {
         } else if let breakdown = tokenBreakdown(for: snapshot.used) {
             parts.append(breakdown)
         }
-        if let reset = snapshot.reset?.compactTitle {
-            parts.append("resets \(reset)")
+        if let reset = snapshot.reset {
+            parts.append(resetPhrase(for: reset, now: now))
         }
         parts.append(confidenceLabel(snapshot.confidence))
         parts.append(sourceLabel(snapshot.source))
@@ -283,6 +302,51 @@ public struct DashboardViewModel: Equatable, Sendable {
         if hours < 24 { return "\(hours)h ago" }
         let days = max(1, hours / 24)
         return "\(days)d ago"
+    }
+
+    private static func resetPhrase(for reset: ResetInfo, now: Date) -> String {
+        let seconds = max(0, secondsRemaining(for: reset, now: now))
+        if seconds < 24 * 3600 {
+            return "resets in \(durationLabel(seconds: seconds, includeMinutes: true))"
+        }
+        let resetDate = resetDate(for: reset, now: now)
+        return "resets \(calendarResetLabel(for: resetDate)) (\(durationLabel(seconds: seconds, includeMinutes: false)))"
+    }
+
+    private static func secondsRemaining(for reset: ResetInfo, now: Date) -> TimeInterval {
+        switch reset {
+        case .rollingWindow(let seconds): max(0, seconds)
+        case .fixed(let date): max(0, date.timeIntervalSince(now))
+        }
+    }
+
+    private static func resetDate(for reset: ResetInfo, now: Date) -> Date {
+        switch reset {
+        case .rollingWindow(let seconds): now.addingTimeInterval(max(0, seconds))
+        case .fixed(let date): date
+        }
+    }
+
+    private static func durationLabel(seconds: TimeInterval, includeMinutes: Bool) -> String {
+        let totalMinutes = max(0, Int((seconds / 60).rounded(.up)))
+        if totalMinutes < 60 { return "\(max(totalMinutes, 0))m" }
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        if hours < 24 {
+            if includeMinutes, minutes > 0 { return "\(hours)h \(minutes)m" }
+            return "\(hours)h"
+        }
+        let days = hours / 24
+        let remainingHours = hours % 24
+        if remainingHours > 0 { return "\(days)d \(remainingHours)h" }
+        return "\(days)d"
+    }
+
+    private static func calendarResetLabel(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EEE h a"
+        return formatter.string(from: date)
     }
 
     private static func compact(_ value: Int) -> String {

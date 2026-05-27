@@ -40,7 +40,7 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.primaryGauge?.caption, "24 credits left")
         XCTAssertEqual(model.rows.map(\.title), ["OpenRouter · main", "Claude Code"])
         XCTAssertEqual(model.rows.map(\.value), ["76% used", "460 tokens"])
-        XCTAssertEqual(model.rows.map(\.detail), ["24 credits left · resets 1h · Exact · API · 1m ago", "in 100 · out 20 · cache 340 · Estimated · local · 1m ago"])
+        XCTAssertEqual(model.rows.map(\.detail), ["24 credits left · resets in 1h · Exact · API · 1m ago", "in 100 · out 20 · cache 340 · Estimated · local · 1m ago"])
         XCTAssertEqual(model.rows[0].meterPercent, 0.76)
         XCTAssertEqual(model.rows[0].meterLabel, "24 credits left")
         XCTAssertEqual(model.rows[0].explanation, "Exact from official OpenRouter API. Shows comparable credits with remaining capacity and refresh freshness.")
@@ -116,6 +116,42 @@ final class DashboardViewModelTests: XCTestCase {
         ]), now: now)
 
         XCTAssertEqual(Set(model.rows.map(\.id)).count, 2)
-        XCTAssertEqual(model.rows.map(\.title), ["OpenRouter key", "OpenRouter credits"])
+        XCTAssertEqual(model.rows.map(\.title), ["OpenRouter credits", "OpenRouter key"])
+    }
+
+    func testLongResetsUseCalendarCopyAndInsightRecommendsBestLane() {
+        NSTimeZone.default = TimeZone(identifier: "America/New_York")!
+        let now = ISO8601DateFormatter().date(from: "2026-05-27T18:37:00Z")!
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .codex,
+                source: .localLogs,
+                label: "5h",
+                used: .percent(5),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 4 * 60),
+                confidence: .exact,
+                updatedAt: now.addingTimeInterval(-3 * 3600)
+            ),
+            UsageSnapshot(
+                provider: .codex,
+                source: .localLogs,
+                label: "Weekly",
+                used: .percent(43),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 74 * 3600),
+                confidence: .exact,
+                updatedAt: now.addingTimeInterval(-3 * 3600)
+            )
+        ]), now: now)
+
+        XCTAssertEqual(model.title, "Codex 43% · 3d")
+        XCTAssertEqual(model.insight, "Use Codex · 5h now; Codex · Weekly is the reserve at 57% left.")
+        XCTAssertEqual(model.primaryGauge?.subtitle, "Exact · resets Sat 4 PM (3d 2h)")
+        XCTAssertEqual(model.rows.map(\.title), ["Codex · Weekly", "Codex · 5h"])
+        XCTAssertEqual(model.rows.map(\.detail), [
+            "57% left · resets Sat 4 PM (3d 2h) · Exact · local · 3h ago",
+            "95% left · resets in 4m · Exact · local · 3h ago"
+        ])
     }
 }
