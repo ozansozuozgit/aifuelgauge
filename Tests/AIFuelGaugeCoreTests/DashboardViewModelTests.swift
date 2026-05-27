@@ -445,6 +445,64 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(steadyModel.rows.first?.trendCaption, "7d peak 20% · steady")
     }
 
+    func testPaceCaptionWarnsWhenBurnRateWillHitLimitBeforeReset() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let summary = UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .openRouter,
+                source: .officialAPI,
+                label: "key",
+                used: .credits(80),
+                limit: .credits(100),
+                reset: .rollingWindow(secondsRemaining: 7_200),
+                confidence: .exact,
+                updatedAt: now
+            )
+        ])
+        let historySamples = [
+            "openRouter-key": [
+                UsageHistorySample(recordedAt: now.addingTimeInterval(-3_600), percent: 0.10),
+                UsageHistorySample(recordedAt: now, percent: 0.80)
+            ]
+        ]
+
+        let model = DashboardViewModel(summary: summary, now: now, historySamples: historySamples)
+
+        XCTAssertEqual(model.primaryGauge?.paceCaption, "Pace warning: limit in 18m, 1h 43m before reset.")
+        XCTAssertEqual(model.rows.first?.paceCaption, "Pace warning: limit in 18m, 1h 43m before reset.")
+        let snapshot = DashboardStatusSnapshot.make(model: model, generatedAt: now)
+        XCTAssertTrue(snapshot.contains("Pace warning: limit in 18m, 1h 43m before reset."))
+    }
+
+    func testPaceCaptionShowsSafeProjectionAndIgnoresPreviousResetDrop() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let summary = UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "cursor-account", displayName: "Cursor", plan: "Pro"),
+                label: "Included total",
+                used: .percent(22),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3_600),
+                confidence: .exact,
+                updatedAt: now
+            )
+        ])
+        let historySamples = [
+            "cursor-cursor-account-Included total": [
+                UsageHistorySample(recordedAt: now.addingTimeInterval(-7_200), percent: 0.90),
+                UsageHistorySample(recordedAt: now.addingTimeInterval(-3_600), percent: 0.20),
+                UsageHistorySample(recordedAt: now, percent: 0.22)
+            ]
+        ]
+
+        let model = DashboardViewModel(summary: summary, now: now, historySamples: historySamples)
+
+        XCTAssertEqual(model.primaryGauge?.paceCaption, "Pace ok: projected to last past reset.")
+        XCTAssertEqual(model.rows.first?.paceCaption, "Pace ok: projected to last past reset.")
+    }
+
     func testDiagnosticsReportIsCopyableAndSanitized() {
         let generatedAt = Date(timeIntervalSince1970: 200)
         let updatedAt = Date(timeIntervalSince1970: 100)

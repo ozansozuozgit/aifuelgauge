@@ -37,6 +37,8 @@ use right now without running into a limit?
 - Local 7-day persisted sparklines for comparable quota rows so usage drift
   remains visible across app restarts without opening provider dashboards.
 - Trend captions under sparklines show 7-day peak and direction at a glance.
+- Pace projection warns when the recent burn rate will hit a lane limit before
+  its reset.
 - History window for local 7-day lane trends, latest value, peak, delta, and
   copyable CSV export.
 - Footer controls for Refresh, Settings, History, Report, and Quit.

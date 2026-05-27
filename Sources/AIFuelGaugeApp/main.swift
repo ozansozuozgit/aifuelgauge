@@ -284,6 +284,7 @@ private final class DashboardController: ObservableObject {
         self.model = DashboardViewModel(
             summary: UsageSummary(snapshots: []),
             history: loadedHistory.percentsBySnapshotID,
+            historySamples: loadedHistory.samplesBySnapshotID,
             menuBarDisplayMode: AppPreferences.menuBarDisplayMode
         )
         startAutoRefresh()
@@ -372,6 +373,7 @@ private final class DashboardController: ObservableObject {
         model = DashboardViewModel(
             summary: currentSummary,
             history: history.percentsBySnapshotID,
+            historySamples: history.samplesBySnapshotID,
             menuBarDisplayMode: AppPreferences.menuBarDisplayMode
         )
     }
@@ -756,6 +758,18 @@ private struct PrimaryGaugeView: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary.opacity(0.75))
             }
+            if let paceCaption = gauge.paceCaption {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: paceCaption.localizedCaseInsensitiveContains("warning") ? "speedometer" : "checkmark.circle.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(paceCaption.localizedCaseInsensitiveContains("warning") ? Color.orange : color(for: gauge.state).opacity(0.82))
+                        .frame(width: 10)
+                    Text(paceCaption)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary.opacity(0.84))
+                        .lineLimit(2)
+                }
+            }
         }
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.78), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -837,6 +851,19 @@ private struct SourceRowView: View {
                         .foregroundStyle(.secondary.opacity(0.72))
                         .padding(.leading, 16)
                 }
+            }
+            if let paceCaption = row.paceCaption {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: paceCaption.localizedCaseInsensitiveContains("warning") ? "speedometer" : "checkmark.circle.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(paceCaption.localizedCaseInsensitiveContains("warning") ? Color.orange : color(for: row.state).opacity(0.82))
+                        .frame(width: 10)
+                    Text(paceCaption)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary.opacity(0.84))
+                        .lineLimit(2)
+                }
+                .padding(.leading, 16)
             }
             if !row.explanation.isEmpty {
                 HStack(alignment: .top, spacing: 6) {

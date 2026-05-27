@@ -8,8 +8,9 @@ public struct DashboardGauge: Equatable, Sendable {
     public let percent: Double
     public let state: UsageState
     public let confidence: Confidence
+    public let paceCaption: String?
 
-    public init(title: String, value: String, subtitle: String, caption: String, percent: Double, state: UsageState, confidence: Confidence) {
+    public init(title: String, value: String, subtitle: String, caption: String, percent: Double, state: UsageState, confidence: Confidence, paceCaption: String? = nil) {
         self.title = title
         self.value = value
         self.subtitle = subtitle
@@ -17,6 +18,7 @@ public struct DashboardGauge: Equatable, Sendable {
         self.percent = percent
         self.state = state
         self.confidence = confidence
+        self.paceCaption = paceCaption
     }
 }
 
@@ -381,7 +383,8 @@ public enum DashboardStatusSnapshot {
         ]
 
         if let gauge = model.primaryGauge {
-            lines.append("Primary: \(gauge.title) · \(gauge.value) · \(gauge.subtitle)")
+            let pace = gauge.paceCaption.map { " · \($0)" } ?? ""
+            lines.append("Primary: \(gauge.title) · \(gauge.value) · \(gauge.subtitle)\(pace)")
         }
 
         if !model.resetTimeline.isEmpty {
@@ -397,7 +400,8 @@ public enum DashboardStatusSnapshot {
             lines.append("Lanes:")
             for row in model.rows.prefix(6) {
                 let meter = row.meterLabel.map { " · \($0)" } ?? ""
-                lines.append("- \(row.title): \(row.value) · \(row.detail)\(meter)")
+                let pace = row.paceCaption.map { " · \($0)" } ?? ""
+                lines.append("- \(row.title): \(row.value) · \(row.detail)\(meter)\(pace)")
             }
         }
 
@@ -431,6 +435,7 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
     public let meterLabel: String?
     public let trendPercents: [Double]
     public let trendCaption: String?
+    public let paceCaption: String?
     public let confidence: Confidence
     public let state: UsageState
 
@@ -444,6 +449,7 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
         meterLabel: String?,
         trendPercents: [Double] = [],
         trendCaption: String? = nil,
+        paceCaption: String? = nil,
         confidence: Confidence,
         state: UsageState
     ) {
@@ -456,6 +462,7 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
         self.meterLabel = meterLabel
         self.trendPercents = trendPercents
         self.trendCaption = trendCaption
+        self.paceCaption = paceCaption
         self.confidence = confidence
         self.state = state
     }
@@ -525,6 +532,7 @@ public struct DashboardViewModel: Equatable, Sendable {
         summary: UsageSummary,
         now: Date = Date(),
         history: [String: [Double]] = [:],
+        historySamples: [String: [UsageHistorySample]] = [:],
         menuBarDisplayMode: MenuBarDisplayMode = .detailed
     ) {
         self.title = summary.menuBarTitle(mode: menuBarDisplayMode)
@@ -537,7 +545,7 @@ public struct DashboardViewModel: Equatable, Sendable {
         self.sourceHealth = Self.sourceHealth(for: summary, now: now)
         self.setupGuidance = Self.setupGuidance(for: summary)
         self.resetTimeline = Self.resetTimeline(for: summary, now: now)
-        self.primaryGauge = summary.primarySnapshot.flatMap { Self.gauge(for: $0, now: now) }
+        self.primaryGauge = summary.primarySnapshot.flatMap { Self.gauge(for: $0, historySamples: historySamples, now: now) }
         let hiddenPrimaryID = summary.primarySnapshot.flatMap { Self.hidesPrimaryRow($0) ? $0.id : nil }
         self.rows = summary.snapshots
             .filter { $0.id != hiddenPrimaryID }
@@ -553,10 +561,27 @@ public struct DashboardViewModel: Equatable, Sendable {
                     meterLabel: Self.remainingLabel(for: snapshot),
                     trendPercents: Self.trendPercents(for: snapshot, history: history),
                     trendCaption: Self.trendCaption(for: snapshot, history: history),
+                    paceCaption: Self.paceCaption(for: snapshot, historySamples: historySamples, now: now),
                     confidence: snapshot.confidence,
                     state: snapshot.state
                 )
             }
+    }
+
+    private static func activeHistorySamples(for snapshot: UsageSnapshot, historySamples: [String: [UsageHistorySample]]) -> [UsageHistorySample] {
+        guard snapshot.usagePercent != nil else { return [] }
+        let sorted = (historySamples[snapshot.id] ?? [])
+            .filter { $0.percent.isFinite }
+            .sorted { $0.recordedAt < $1.recordedAt }
+        guard sorted.count >= 2 else { return [] }
+        var startIndex = sorted.startIndex
+        for index in sorted.indices.dropFirst() {
+            let previousIndex = sorted.index(before: index)
+            if sorted[index].percent + 0.02 < sorted[previousIndex].percent {
+                startIndex = index
+            }
+        }
+        return Array(sorted[startIndex...])
     }
 
     private static func trendPercents(for snapshot: UsageSnapshot, history: [String: [Double]]) -> [Double] {
@@ -582,7 +607,38 @@ public struct DashboardViewModel: Equatable, Sendable {
         return "7d peak \(peak)% · \(direction)"
     }
 
-    private static func gauge(for snapshot: UsageSnapshot, now: Date) -> DashboardGauge? {
+    private static func paceCaption(for snapshot: UsageSnapshot, historySamples: [String: [UsageHistorySample]], now: Date) -> String? {
+        guard let currentPercent = snapshot.usagePercent,
+              currentPercent.isFinite,
+              let reset = snapshot.reset,
+              snapshot.confidence == .exact,
+              !snapshot.isSubscriptionOnly else {
+            return nil
+        }
+        let samples = activeHistorySamples(for: snapshot, historySamples: historySamples)
+        guard let first = samples.first, let last = samples.last, samples.count >= 2 else { return nil }
+        let elapsed = last.recordedAt.timeIntervalSince(first.recordedAt)
+        guard elapsed >= 5 * 60 else { return nil }
+        let delta = last.percent - first.percent
+        if currentPercent >= 1 {
+            return "Pace: already at limit; wait for reset."
+        }
+        guard delta > 0.01 else {
+            return "Pace: steady; projected to last past reset."
+        }
+        let ratePerSecond = delta / elapsed
+        guard ratePerSecond > 0 else { return nil }
+        let secondsToLimit = (1 - currentPercent) / ratePerSecond
+        let resetSeconds = secondsRemaining(for: reset, now: now)
+        guard resetSeconds > 0 else { return nil }
+        if secondsToLimit < resetSeconds {
+            let gap = resetSeconds - secondsToLimit
+            return "Pace warning: limit in \(durationLabel(seconds: secondsToLimit, includeMinutes: true)), \(durationLabel(seconds: gap, includeMinutes: true)) before reset."
+        }
+        return "Pace ok: projected to last past reset."
+    }
+
+    private static func gauge(for snapshot: UsageSnapshot, historySamples: [String: [UsageHistorySample]], now: Date) -> DashboardGauge? {
         guard let usagePercent = snapshot.usagePercent else { return nil }
         let clamped = min(max(usagePercent, 0), 1)
         let reset = snapshot.reset.map { resetPhrase(for: $0, now: now) } ?? "live quota"
@@ -597,7 +653,8 @@ public struct DashboardViewModel: Equatable, Sendable {
             caption: gaugeCaption(for: snapshot) ?? "Limit window active",
             percent: clamped,
             state: snapshot.state,
-            confidence: snapshot.confidence
+            confidence: snapshot.confidence,
+            paceCaption: paceCaption(for: snapshot, historySamples: historySamples, now: now)
         )
     }
 
