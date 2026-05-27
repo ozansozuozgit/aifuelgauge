@@ -333,4 +333,24 @@ final class DashboardViewModelTests: XCTestCase {
 
         XCTAssertEqual(history.samplesBySnapshotID, ["openRouter-key": [0.2, 0.3]])
     }
+
+    func testUsageHistoryFileStorePersistsBoundedSamples() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let fileURL = directory.appendingPathComponent("usage-history.json")
+        let store = UsageHistoryFileStore(fileURL: fileURL, maxSamples: 2)
+        let history = UsageHistorySeries(maxSamples: 4, samplesBySnapshotID: [
+            "openRouter-key": [0.1, 0.2, 0.3],
+            "cursor-api": [1.0]
+        ])
+
+        try store.save(history)
+        let loaded = store.load()
+
+        XCTAssertEqual(loaded.maxSamples, 2)
+        XCTAssertEqual(loaded.samplesBySnapshotID, [
+            "cursor-api": [1.0],
+            "openRouter-key": [0.2, 0.3]
+        ])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+    }
 }

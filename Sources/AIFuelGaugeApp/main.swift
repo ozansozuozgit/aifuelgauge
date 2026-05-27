@@ -150,6 +150,16 @@ private enum AppPreferences {
     }
 }
 
+private enum AppStoragePaths {
+    static var historyURL: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
+        return base
+            .appendingPathComponent("AI Fuel Gauge", isDirectory: true)
+            .appendingPathComponent("usage-history.json")
+    }
+}
+
 @MainActor
 private final class DashboardController: ObservableObject {
     @Published private(set) var model: DashboardViewModel
@@ -159,12 +169,19 @@ private final class DashboardController: ObservableObject {
     private var autoRefreshCancellable: AnyCancellable?
     private var preferenceCancellable: AnyCancellable?
     private var summary: UsageSummary?
-    private var history = UsageHistorySeries()
+    private let historyStore = UsageHistoryFileStore(fileURL: AppStoragePaths.historyURL)
+    private var history: UsageHistorySeries
     private var notifiedStaleIDs = Set<String>()
     private var lastRefreshAt = Date.distantPast
 
     init() {
-        self.model = DashboardViewModel(summary: UsageSummary(snapshots: []), menuBarDisplayMode: AppPreferences.menuBarDisplayMode)
+        let loadedHistory = UsageHistoryFileStore(fileURL: AppStoragePaths.historyURL).load()
+        self.history = loadedHistory
+        self.model = DashboardViewModel(
+            summary: UsageSummary(snapshots: []),
+            history: loadedHistory.samplesBySnapshotID,
+            menuBarDisplayMode: AppPreferences.menuBarDisplayMode
+        )
         startAutoRefresh()
         observePreferences()
         refresh()
@@ -184,6 +201,7 @@ private final class DashboardController: ObservableObject {
             let previous = self.summary
             self.summary = result.summary
             self.history.record(summary: result.summary)
+            try? self.historyStore.save(self.history)
             self.rebuildModel()
             self.refreshError = result.error
             self.deliverAlerts(for: result.summary, previous: previous)

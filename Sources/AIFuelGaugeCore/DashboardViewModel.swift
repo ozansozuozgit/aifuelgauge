@@ -20,8 +20,8 @@ public struct DashboardGauge: Equatable, Sendable {
     }
 }
 
-public struct UsageHistorySeries: Equatable, Sendable {
-    private let maxSamples: Int
+public struct UsageHistorySeries: Codable, Equatable, Sendable {
+    public let maxSamples: Int
     public private(set) var samplesBySnapshotID: [String: [Double]]
 
     public init(maxSamples: Int = 24, samplesBySnapshotID: [String: [Double]] = [:]) {
@@ -38,6 +38,35 @@ public struct UsageHistorySeries: Equatable, Sendable {
             samples.append(min(max(usagePercent, 0), 1))
             samplesBySnapshotID[snapshot.id] = Array(samples.suffix(maxSamples))
         }
+    }
+}
+
+public struct UsageHistoryFileStore {
+    private let fileURL: URL
+    private let maxSamples: Int
+    private let fileManager: FileManager
+
+    public init(fileURL: URL, maxSamples: Int = 96, fileManager: FileManager = .default) {
+        self.fileURL = fileURL
+        self.maxSamples = max(2, maxSamples)
+        self.fileManager = fileManager
+    }
+
+    public func load() -> UsageHistorySeries {
+        guard let data = try? Data(contentsOf: fileURL),
+              let decoded = try? JSONDecoder().decode(UsageHistorySeries.self, from: data) else {
+            return UsageHistorySeries(maxSamples: maxSamples)
+        }
+        return UsageHistorySeries(maxSamples: maxSamples, samplesBySnapshotID: decoded.samplesBySnapshotID)
+    }
+
+    public func save(_ history: UsageHistorySeries) throws {
+        try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let normalized = UsageHistorySeries(maxSamples: maxSamples, samplesBySnapshotID: history.samplesBySnapshotID)
+        let data = try encoder.encode(normalized)
+        try data.write(to: fileURL, options: .atomic)
     }
 }
 

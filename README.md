@@ -28,8 +28,8 @@ use right now without running into a limit?
   formatting.
 - Source-health strip showing live account connectors, local fallbacks, setup
   needed rows, and stale sources at a glance.
-- Session sparklines for comparable quota rows so short-term usage drift is
-  visible without opening provider dashboards.
+- Local persisted sparklines for comparable quota rows so short-term usage
+  drift remains visible across app restarts without opening provider dashboards.
 - Footer controls for Refresh, Settings, and Quit.
 - Settings for editable local plan labels, warning thresholds, and refresh cadence.
 - Configurable menu bar display modes: detail, compact, or minimal.
@@ -129,7 +129,7 @@ Do not pretend estimates are exact. The app should always distinguish:
 1. Add FSEvents/polling refresh for Claude/Codex/Cursor local state.
 2. Add OpenAI usage/cost connector.
 3. Replace OpenCode placeholder with SQLite-backed usage parsing.
-4. Persist 7-day history and add configurable menu bar sparklines.
+4. Add full 7-day history view and configurable menu bar sparklines.
 5. Add WidgetKit widgets for the active provider and tightest quota.
 6. Add Homebrew cask and signed/notarized release builds.
 7. Add a proper `.app` bundle icon.
