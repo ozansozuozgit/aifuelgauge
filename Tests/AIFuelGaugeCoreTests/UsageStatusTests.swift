@@ -105,6 +105,31 @@ final class UsageStatusTests: XCTestCase {
         XCTAssertEqual(alerts.last?.identifier, "codex-5h-90")
     }
 
+    func testAlertPlannerUsesProviderSpecificThresholds() {
+        let earlier = UsageSummary(snapshots: [
+            snapshot(provider: .codex, label: "5h", percent: 0.74, reset: 3600),
+            snapshot(provider: .cursor, label: "Included total", percent: 0.74, reset: 3600),
+            snapshot(provider: .openRouter, label: "main", percent: 0.74, reset: 3600)
+        ])
+        let later = UsageSummary(snapshots: [
+            snapshot(provider: .codex, label: "5h", percent: 0.80, reset: 600),
+            snapshot(provider: .cursor, label: "Included total", percent: 0.80, reset: 600),
+            snapshot(provider: .openRouter, label: "main", percent: 0.80, reset: 600)
+        ])
+        let planner = UsageAlertPlanner(
+            thresholds: [0.75],
+            providerThresholds: [
+                .codex: [0.90],
+                .cursor: []
+            ]
+        )
+
+        let alerts = planner.alerts(previous: earlier, current: later)
+
+        XCTAssertEqual(alerts.map(\.identifier), ["openRouter-main-75"])
+        XCTAssertEqual(alerts.map(\.provider), [.openRouter])
+    }
+
     func testDashboardRowsShowSubscriptionPlansWithoutFakeQuotaData() {
         let summary = UsageSummary(snapshots: [
             UsageSnapshot(

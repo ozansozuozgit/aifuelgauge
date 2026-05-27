@@ -333,21 +333,25 @@ public struct UsageAlertEvent: Equatable, Sendable {
 }
 
 public struct UsageAlertPlanner: Equatable, Sendable {
-    public let thresholds: [Double]
+    public let defaultThresholds: [Double]
+    public let providerThresholds: [Provider: [Double]]
 
-    public init(thresholds: [Double] = [0.75, 0.9, 1.0]) {
-        self.thresholds = thresholds.sorted()
+    public init(thresholds: [Double] = [0.75, 0.9, 1.0], providerThresholds: [Provider: [Double]] = [:]) {
+        self.defaultThresholds = thresholds.sorted()
+        self.providerThresholds = providerThresholds.mapValues { $0.sorted() }
     }
 
     public func alerts(previous: UsageSummary?, current: UsageSummary) -> [UsageAlertEvent] {
         guard let previous else { return [] }
         let previousByID = Dictionary(uniqueKeysWithValues: previous.snapshots.map { ($0.id, $0) })
-        let tracker = ThresholdTracker(thresholds: thresholds)
         return current.snapshots.flatMap { snapshot -> [UsageAlertEvent] in
             guard let currentPercent = snapshot.usagePercent,
                   let previousPercent = previousByID[snapshot.id]?.usagePercent else {
                 return []
             }
+            let thresholds = thresholds(for: snapshot.provider)
+            guard !thresholds.isEmpty else { return [] }
+            let tracker = ThresholdTracker(thresholds: thresholds)
             var events = tracker.crossedThresholds(previous: previousPercent, current: currentPercent).map { threshold in
                 quotaAlert(for: snapshot, currentPercent: currentPercent, threshold: threshold)
             }
@@ -359,6 +363,10 @@ public struct UsageAlertPlanner: Equatable, Sendable {
             }
             return events
         }
+    }
+
+    private func thresholds(for provider: Provider) -> [Double] {
+        providerThresholds[provider] ?? defaultThresholds
     }
 
     public func staleAlerts(summary: UsageSummary, now: Date, maxAge: TimeInterval = 300) -> [UsageAlertEvent] {

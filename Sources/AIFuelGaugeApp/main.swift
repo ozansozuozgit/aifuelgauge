@@ -127,6 +127,10 @@ private enum AppPreferences {
     static let alert75EnabledKey = "alert75Enabled"
     static let alert90EnabledKey = "alert90Enabled"
     static let alert100EnabledKey = "alert100Enabled"
+    static let codexAlertProfileKey = "codexAlertProfile"
+    static let cursorAlertProfileKey = "cursorAlertProfile"
+    static let openRouterAlertProfileKey = "openRouterAlertProfile"
+    static let claudeCodeAlertProfileKey = "claudeCodeAlertProfile"
     static let staleWarningsEnabledKey = "staleWarningsEnabled"
     static let refreshIntervalSecondsKey = "refreshIntervalSeconds"
     static let menuBarDisplayModeKey = "menuBarDisplayMode"
@@ -139,6 +143,10 @@ private enum AppPreferences {
             alert75EnabledKey: true,
             alert90EnabledKey: true,
             alert100EnabledKey: true,
+            codexAlertProfileKey: AlertThresholdProfile.inherit.rawValue,
+            cursorAlertProfileKey: AlertThresholdProfile.inherit.rawValue,
+            openRouterAlertProfileKey: AlertThresholdProfile.inherit.rawValue,
+            claudeCodeAlertProfileKey: AlertThresholdProfile.inherit.rawValue,
             staleWarningsEnabledKey: true,
             refreshIntervalSecondsKey: 180,
             menuBarDisplayModeKey: MenuBarDisplayMode.detailed.rawValue
@@ -161,6 +169,20 @@ private enum AppPreferences {
         return thresholds
     }
 
+    static func alertThresholdsByProvider() -> [Provider: [Double]] {
+        let providerKeys: [(Provider, String)] = [
+            (.codex, codexAlertProfileKey),
+            (.cursor, cursorAlertProfileKey),
+            (.openRouter, openRouterAlertProfileKey),
+            (.claudeCode, claudeCodeAlertProfileKey)
+        ]
+        return providerKeys.reduce(into: [Provider: [Double]]()) { result, item in
+            let profile = AlertThresholdProfile(rawValue: UserDefaults.standard.string(forKey: item.1) ?? "") ?? .inherit
+            guard profile != .inherit else { return }
+            result[item.0] = profile.thresholds(global: alertThresholds())
+        }
+    }
+
     static var staleWarningsEnabled: Bool {
         UserDefaults.standard.bool(forKey: staleWarningsEnabledKey)
     }
@@ -178,6 +200,46 @@ private enum AppPreferences {
     private static func string(for key: String) -> String? {
         let trimmed = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+private enum AlertThresholdProfile: String, CaseIterable, Identifiable {
+    case inherit
+    case early
+    case standard
+    case criticalOnly
+    case off
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .inherit: "Global"
+        case .early: "Early"
+        case .standard: "Standard"
+        case .criticalOnly: "Critical"
+        case .off: "Off"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .inherit: "Use the global warning thresholds."
+        case .early: "Warn at 50%, 75%, 90%, and 100%."
+        case .standard: "Warn at 75%, 90%, and 100%."
+        case .criticalOnly: "Warn only at 90% and 100%."
+        case .off: "Do not send quota alerts for this provider."
+        }
+    }
+
+    func thresholds(global: [Double]) -> [Double] {
+        switch self {
+        case .inherit: global
+        case .early: [0.50, 0.75, 0.90, 1.00]
+        case .standard: [0.75, 0.90, 1.00]
+        case .criticalOnly: [0.90, 1.00]
+        case .off: []
+        }
     }
 }
 
@@ -299,7 +361,10 @@ private final class DashboardController: ObservableObject {
     }
 
     private func deliverAlerts(for current: UsageSummary, previous: UsageSummary?) {
-        let alertPlanner = UsageAlertPlanner(thresholds: AppPreferences.alertThresholds())
+        let alertPlanner = UsageAlertPlanner(
+            thresholds: AppPreferences.alertThresholds(),
+            providerThresholds: AppPreferences.alertThresholdsByProvider()
+        )
         let crossingAlerts = alertPlanner.alerts(previous: previous, current: current)
         let staleAlerts = AppPreferences.staleWarningsEnabled
             ? alertPlanner.staleAlerts(summary: current, now: Date(), maxAge: 600)
@@ -859,6 +924,10 @@ private struct SettingsView: View {
     @AppStorage(AppPreferences.alert75EnabledKey) private var alert75Enabled = true
     @AppStorage(AppPreferences.alert90EnabledKey) private var alert90Enabled = true
     @AppStorage(AppPreferences.alert100EnabledKey) private var alert100Enabled = true
+    @AppStorage(AppPreferences.codexAlertProfileKey) private var codexAlertProfile = AlertThresholdProfile.inherit.rawValue
+    @AppStorage(AppPreferences.cursorAlertProfileKey) private var cursorAlertProfile = AlertThresholdProfile.inherit.rawValue
+    @AppStorage(AppPreferences.openRouterAlertProfileKey) private var openRouterAlertProfile = AlertThresholdProfile.inherit.rawValue
+    @AppStorage(AppPreferences.claudeCodeAlertProfileKey) private var claudeCodeAlertProfile = AlertThresholdProfile.inherit.rawValue
     @AppStorage(AppPreferences.staleWarningsEnabledKey) private var staleWarningsEnabled = true
     @AppStorage(AppPreferences.refreshIntervalSecondsKey) private var refreshIntervalSeconds = 180
     @AppStorage(AppPreferences.menuBarDisplayModeKey) private var menuBarDisplayMode = MenuBarDisplayMode.detailed.rawValue
@@ -936,6 +1005,18 @@ private struct SettingsView: View {
             }
 
             SettingsPanel {
+                Text("Provider alert profiles")
+                    .font(.system(size: 11, weight: .semibold))
+                AlertProfileRow(provider: "Codex", selection: $codexAlertProfile)
+                AlertProfileRow(provider: "Cursor", selection: $cursorAlertProfile)
+                AlertProfileRow(provider: "OpenRouter", selection: $openRouterAlertProfile)
+                AlertProfileRow(provider: "Claude Code", selection: $claudeCodeAlertProfile)
+                Text("Global keeps the warning toggles above. Use Off for providers where notifications are noisy.")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            SettingsPanel {
                 Text("OpenRouter API key")
                     .font(.system(size: 11, weight: .semibold))
                 HStack(spacing: 8) {
@@ -1001,7 +1082,7 @@ private struct SettingsView: View {
             }
         }
         .padding(18)
-        .frame(width: 540, height: 760)
+        .frame(width: 540, height: 860)
     }
 
     private func pasteOpenRouterKey() {
@@ -1097,6 +1178,35 @@ private struct EditableTextPlanRow: View {
                 .font(.system(size: 10, weight: .medium))
                 .frame(width: 110)
             Text(detail)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+}
+
+private struct AlertProfileRow: View {
+    let provider: String
+    @Binding var selection: String
+
+    private var selectedProfile: AlertThresholdProfile {
+        AlertThresholdProfile(rawValue: selection) ?? .inherit
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(provider)
+                .font(.system(size: 10, weight: .semibold))
+                .frame(width: 86, alignment: .leading)
+            Picker(provider, selection: $selection) {
+                ForEach(AlertThresholdProfile.allCases) { profile in
+                    Text(profile.title).tag(profile.rawValue)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(width: 118)
+            Text(selectedProfile.detail)
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)

@@ -35,6 +35,7 @@ use right now without running into a limit?
 - Trend captions under sparklines show 7-day peak and direction at a glance.
 - Footer controls for Refresh, Settings, and Quit.
 - Settings for editable local plan labels, warning thresholds, and refresh cadence.
+- Per-provider alert profiles so noisy providers can be early, critical-only, or off.
 - Configurable menu bar display modes: detail, compact, or minimal.
 - Data controls to reveal or clear the local usage-history file.
 - Copyable diagnostics report for source status, history counts, and current
