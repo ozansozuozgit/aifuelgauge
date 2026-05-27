@@ -68,4 +68,53 @@ final class CursorUsageConnectorTests: XCTestCase {
             XCTAssertEqual(error as? CursorUsageConnectorError, .invalidUsageResponse)
         }
     }
+
+    func testCursorSetupMessagesStaySecretSafeAndActionable() {
+        let resetDate = Date(timeIntervalSince1970: Date().timeIntervalSince1970 + 3_600)
+        let snapshots = [
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                account: UsageAccount(
+                    identifier: "cursor-abc123",
+                    displayName: "Cursor",
+                    plan: "Pro",
+                    identityHint: "u***r@example.com"
+                ),
+                label: "Included total",
+                used: .percent(59.1),
+                limit: .percent(100),
+                reset: .fixed(resetDate),
+                confidence: .exact,
+                updatedAt: Date(timeIntervalSince1970: 200)
+            ),
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                account: UsageAccount(
+                    identifier: "cursor-abc123",
+                    displayName: "Cursor",
+                    plan: "Pro",
+                    identityHint: "u***r@example.com"
+                ),
+                label: "API usage",
+                used: .percent(100),
+                limit: .percent(100),
+                reset: .fixed(resetDate),
+                confidence: .exact,
+                updatedAt: Date(timeIntervalSince1970: 200)
+            )
+        ]
+
+        let success = CursorSetupCheck.successMessage(snapshots: snapshots)
+        let failure = CursorSetupCheck.failureMessage(error: CursorUsageConnectorError.usageRequestFailed(statusCode: 401))
+
+        XCTAssertTrue(success.contains("Cursor live usage works. Pro · acct u***r@example.com."))
+        XCTAssertTrue(success.contains("Included total 59% used, API usage 100% used."))
+        XCTAssertEqual(failure, "Cursor rejected the usage request (HTTP 401). Open Cursor, confirm you are signed in, then test again.")
+        XCTAssertFalse(success.contains("Bearer"))
+        XCTAssertFalse(success.contains("accessToken"))
+        XCTAssertFalse(failure.contains("Bearer"))
+        XCTAssertFalse(failure.contains("accessToken"))
+    }
 }

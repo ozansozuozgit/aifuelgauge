@@ -48,6 +48,8 @@ use right now without running into a limit?
   status, history counts, and current refresh warnings without secrets.
 - Paste-friendly macOS Keychain storage for an OpenRouter API key.
 - OpenRouter key test action verifies exact usage access before saving.
+- Cursor live-usage test verifies local account auth and current-period lanes
+  without exposing the token.
 - Background refresh so opening the menu item does not block on large local logs.
 - Optional live OpenRouter polling when a key is saved in Settings.
 

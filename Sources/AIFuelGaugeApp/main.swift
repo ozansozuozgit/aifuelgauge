@@ -1130,9 +1130,12 @@ private struct SettingsView: View {
     @State private var openRouterKey: String
     @State private var message: String = "Stored in macOS Keychain. Not synced."
     @State private var isTestingOpenRouterKey = false
+    @State private var cursorMessage: String
+    @State private var isTestingCursorUsage = false
     @State private var historyMessage: String = "History stores only lane IDs, timestamps, and percentages."
     @State private var detectedCursorPlan: String
     @State private var detectedCursorStatus: String
+    @State private var detectedCursorAccount: String
     @AppStorage(AppPreferences.claudeCodePlanLabelKey) private var claudeCodePlanLabel = "Free"
     @AppStorage(AppPreferences.cursorPlanOverrideKey) private var cursorPlanOverride = ""
     @AppStorage(AppPreferences.alert50EnabledKey) private var alert50Enabled = false
@@ -1154,6 +1157,12 @@ private struct SettingsView: View {
         ).read()
         _detectedCursorPlan = State(initialValue: cursorState?.displayPlan ?? "Not found")
         _detectedCursorStatus = State(initialValue: cursorState?.displayStatus ?? "No local account status")
+        _detectedCursorAccount = State(initialValue: cursorState?.maskedEmail ?? "No account identity")
+        let cursorMessage = cursorState
+            .map { state in
+                "Detected \(state.displayPlan ?? "plan unknown") · \(state.displayStatus ?? "status unknown") · \(state.maskedEmail ?? "account hidden"). Test for exact live usage."
+            } ?? "Cursor account not detected yet. Open Cursor while signed in, then test again."
+        _cursorMessage = State(initialValue: cursorMessage)
     }
 
     var body: some View {
@@ -1171,7 +1180,18 @@ private struct SettingsView: View {
                     .font(.system(size: 11, weight: .semibold))
                 EditablePlanRow(provider: "Codex", value: "Auto from account", detail: "Exact plan and quota from ~/.codex/auth.json when available.")
                 EditableTextPlanRow(provider: "Claude Code", text: $claudeCodePlanLabel, placeholder: "Free", detail: "Shown with local token estimates. Clear it if this is wrong.")
-                EditableTextPlanRow(provider: "Cursor", text: $cursorPlanOverride, placeholder: detectedCursorPlan, detail: "Detected: \(detectedCursorPlan) · \(detectedCursorStatus). Override only if needed.")
+                EditableTextPlanRow(provider: "Cursor", text: $cursorPlanOverride, placeholder: detectedCursorPlan, detail: "Detected: \(detectedCursorPlan) · \(detectedCursorStatus) · \(detectedCursorAccount). Override only if needed.")
+                HStack(spacing: 8) {
+                    Button(isTestingCursorUsage ? "Testing Cursor" : "Test Cursor") {
+                        testCursorUsage()
+                    }
+                    .disabled(isTestingCursorUsage)
+                    .help("Verify live Cursor usage without exposing your token")
+                    Text(cursorMessage)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
             }
 
             SettingsPanel {
@@ -1335,6 +1355,24 @@ private struct SettingsView: View {
             await MainActor.run {
                 message = result
                 isTestingOpenRouterKey = false
+            }
+        }
+    }
+
+    private func testCursorUsage() {
+        isTestingCursorUsage = true
+        cursorMessage = "Testing Cursor live usage..."
+        Task {
+            let result: String
+            do {
+                let snapshots = try await CursorUsageConnector(planPreferences: AppPreferences.localPlanPreferences()).fetchUsage()
+                result = CursorSetupCheck.successMessage(snapshots: snapshots)
+            } catch {
+                result = CursorSetupCheck.failureMessage(error: error)
+            }
+            await MainActor.run {
+                cursorMessage = result
+                isTestingCursorUsage = false
             }
         }
     }

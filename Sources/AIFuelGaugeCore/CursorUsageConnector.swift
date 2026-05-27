@@ -3,7 +3,7 @@ import Foundation
 public enum CursorUsageConnectorError: Error, Equatable {
     case missingAccountState
     case missingAccessToken
-    case usageRequestFailed
+    case usageRequestFailed(statusCode: Int?)
     case invalidUsageResponse
 }
 
@@ -49,8 +49,11 @@ public final class CursorUsageConnector {
         request.setValue("AI Fuel Gauge", forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await transport.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw CursorUsageConnectorError.usageRequestFailed
+        guard let http = response as? HTTPURLResponse else {
+            throw CursorUsageConnectorError.usageRequestFailed(statusCode: nil)
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw CursorUsageConnectorError.usageRequestFailed(statusCode: http.statusCode)
         }
         let plan = planPreferences.cursorPlanOverride ?? state.displayPlan
         return try CursorUsageResponseParser(now: now).parse(
@@ -59,6 +62,47 @@ public final class CursorUsageConnector {
             accountIdentifier: state.stableAccountIdentifier,
             identityHint: state.maskedEmail
         )
+    }
+}
+
+public enum CursorSetupCheck {
+    public static func successMessage(snapshots: [UsageSnapshot]) -> String {
+        guard !snapshots.isEmpty else {
+            return "Cursor account was found, but no comparable usage lanes were returned."
+        }
+        let account = snapshots.compactMap(\.account).first
+        let plan = account?.plan?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "plan detected"
+        let identity = account?.identityHint?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            .map { " · acct \($0)" } ?? ""
+        let lanes = snapshots.compactMap { snapshot -> String? in
+            guard let percent = snapshot.usagePercent else { return nil }
+            return "\(snapshot.label) \(Int((percent * 100).rounded()))% used"
+        }
+        .prefix(3)
+        .joined(separator: ", ")
+        let reset = snapshots.compactMap(\.reset?.compactTitle).first.map { " Resets in \($0)." } ?? ""
+        if lanes.isEmpty {
+            return "Cursor live usage works. \(plan)\(identity). No percentage lanes were returned.\(reset)"
+        }
+        return "Cursor live usage works. \(plan)\(identity). \(lanes).\(reset)"
+    }
+
+    public static func failureMessage(error: Error) -> String {
+        switch error {
+        case CursorUsageConnectorError.missingAccountState:
+            return "Cursor account state was not found. Open Cursor while signed in, then test again."
+        case CursorUsageConnectorError.missingAccessToken:
+            return "Cursor account was found, but no local access token is available. Sign out and back into Cursor if needed."
+        case CursorUsageConnectorError.usageRequestFailed(let statusCode):
+            if let statusCode {
+                return "Cursor rejected the usage request (HTTP \(statusCode)). Open Cursor, confirm you are signed in, then test again."
+            }
+            return "Cursor usage request failed before a provider response was available."
+        case CursorUsageConnectorError.invalidUsageResponse:
+            return "Cursor responded, but the usage shape changed or has no comparable lanes."
+        default:
+            return "Cursor usage test failed. Check Cursor sign-in, network, or provider status."
+        }
     }
 }
 
