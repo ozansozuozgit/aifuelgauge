@@ -827,18 +827,21 @@ private struct DashboardView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(controller.refreshError ?? footerStatusText)
                 .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(controller.refreshError == nil ? Color.secondary.opacity(0.60) : Color.red)
+                .foregroundStyle(controller.refreshError == nil ? Color.secondary.opacity(0.82) : Color.red)
                 .lineLimit(1)
-            Spacer(minLength: 8)
-            FooterButton(title: "Refresh", systemName: "arrow.clockwise", action: actions.refresh)
-            FooterButton(title: "Settings", systemName: "slider.horizontal.3", action: actions.settings)
-            FooterButton(title: "History", systemName: "chart.line.uptrend.xyaxis", action: actions.history)
-            FooterButton(title: "Status", systemName: "doc.on.doc", action: actions.copyStatus)
-            FooterButton(title: "Report", systemName: "doc.on.clipboard", action: actions.copyDiagnostics)
-            FooterButton(title: "Quit", systemName: "xmark", action: actions.quit)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                FooterButton(title: "Refresh", systemName: "arrow.clockwise", action: actions.refresh)
+                FooterButton(title: "Settings", systemName: "slider.horizontal.3", action: actions.settings)
+                FooterButton(title: "History", systemName: "chart.line.uptrend.xyaxis", action: actions.history)
+                FooterButton(title: "Status", systemName: "doc.on.doc", action: actions.copyStatus)
+                FooterButton(title: "Report", systemName: "doc.on.clipboard", action: actions.copyDiagnostics)
+                FooterButton(title: "Quit", systemName: "xmark", action: actions.quit)
+            }
         }
         .padding(.top, 1)
     }
@@ -854,46 +857,62 @@ private struct ContextStrip: View {
     let resetItems: [DashboardResetItem]
     let healthItems: [DashboardSourceHealthItem]
 
-    private var guidanceSummary: String? {
+    private var contextItems: [ContextItem] {
+        [guidanceItem, resetItem, healthItem].compactMap { $0 }
+    }
+
+    private var guidanceItem: ContextItem? {
         let nonObvious = guidanceItems.filter { item in
             item.title.localizedCaseInsensitiveContains("spike")
         }
         let source = nonObvious.first ?? guidanceItems.first
         guard let source else { return nil }
-        return "\(source.title): \(source.value)"
+        let label = source.title.localizedCaseInsensitiveContains("Most room") ? "Use" : source.title
+        return ContextItem(id: "guidance", label: label, value: source.value)
     }
 
-    private var resetSummary: String? {
+    private var resetItem: ContextItem? {
         guard let reset = resetItems.first else { return nil }
-        return "Next reset \(reset.value), \(reset.title)"
+        return ContextItem(id: "reset", label: "Reset", value: "\(reset.title) in \(reset.value)")
     }
 
-    private var healthSummary: String? {
+    private var healthItem: ContextItem? {
         guard !healthItems.isEmpty else { return nil }
-        return healthItems.map { "\($0.title.lowercased()) \($0.value)" }.joined(separator: ", ")
+        let value = healthItems
+            .map { "\($0.value) \($0.title.lowercased())" }
+            .joined(separator: ", ")
+        return ContextItem(id: "health", label: "Sources", value: value)
     }
 
     var body: some View {
-        let chips = [guidanceSummary, resetSummary, healthSummary].compactMap { $0 }
-        if !chips.isEmpty {
+        if !contextItems.isEmpty {
             HStack(spacing: 7) {
-                Text("Context")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary.opacity(0.72))
-                ForEach(Array(chips.prefix(3).enumerated()), id: \.offset) { _, chip in
-                    Text(chip)
-                        .font(.system(size: 9, weight: .semibold))
-                        .lineLimit(1)
-                        .foregroundStyle(.secondary.opacity(0.78))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                        .background(Color(nsColor: .controlBackgroundColor).opacity(0.42), in: Capsule())
+                ForEach(contextItems.prefix(3)) { item in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.label)
+                            .font(.system(size: 8, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary.opacity(0.72))
+                            .textCase(.uppercase)
+                        Text(item.value)
+                            .font(.system(size: 9, weight: .semibold))
+                            .lineLimit(1)
+                            .foregroundStyle(.secondary.opacity(0.90))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.38), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 }
-                Spacer(minLength: 0)
             }
-            .accessibilityLabel(chips.joined(separator: ", "))
+            .accessibilityLabel(contextItems.map { "\($0.label): \($0.value)" }.joined(separator: ", "))
         }
     }
+}
+
+private struct ContextItem: Identifiable {
+    let id: String
+    let label: String
+    let value: String
 }
 
 private struct SetupGuidanceView: View {
