@@ -80,6 +80,8 @@ use right now without running into a limit?
   instead of looking like duplicate 5h rows.
 - The dashboard separates the lane with the most room from the tightest lane so
   the popover answers both "what can I use now?" and "what should I watch?".
+- Optional budgets can turn OpenAI spend, Cursor spend, and OpenRouter key
+  usage into comparable guardrails without hardcoding subscription plan limits.
 - Cursor spend rows come from the provider response instead of a hardcoded plan
   budget.
 - Background refresh so opening the menu item does not block on large local logs.

@@ -141,6 +141,8 @@ private enum AppPreferences {
     static let refreshIntervalSecondsKey = "refreshIntervalSeconds"
     static let menuBarDisplayModeKey = "menuBarDisplayMode"
     static let openAIMonthlyBudgetUSDKey = "openAIMonthlyBudgetUSD"
+    static let cursorMonthlyBudgetUSDKey = "cursorMonthlyBudgetUSD"
+    static let openRouterMonthlyBudgetCreditsKey = "openRouterMonthlyBudgetCredits"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -157,7 +159,9 @@ private enum AppPreferences {
             staleWarningsEnabledKey: true,
             refreshIntervalSecondsKey: 180,
             menuBarDisplayModeKey: MenuBarDisplayMode.detailed.rawValue,
-            openAIMonthlyBudgetUSDKey: ""
+            openAIMonthlyBudgetUSDKey: "",
+            cursorMonthlyBudgetUSDKey: "",
+            openRouterMonthlyBudgetCreditsKey: ""
         ])
     }
 
@@ -206,7 +210,11 @@ private enum AppPreferences {
     }
 
     static func budgetPreferences() -> UsageBudgetPreferences {
-        UsageBudgetPreferences(openAIMonthlyUSD: double(for: openAIMonthlyBudgetUSDKey))
+        UsageBudgetPreferences(
+            openAIMonthlyUSD: double(for: openAIMonthlyBudgetUSDKey),
+            cursorMonthlyUSD: double(for: cursorMonthlyBudgetUSDKey),
+            openRouterMonthlyCredits: double(for: openRouterMonthlyBudgetCreditsKey)
+        )
     }
 
     private static func string(for key: String) -> String? {
@@ -1299,6 +1307,8 @@ private struct SettingsView: View {
     @AppStorage(AppPreferences.refreshIntervalSecondsKey) private var refreshIntervalSeconds = 180
     @AppStorage(AppPreferences.menuBarDisplayModeKey) private var menuBarDisplayMode = MenuBarDisplayMode.detailed.rawValue
     @AppStorage(AppPreferences.openAIMonthlyBudgetUSDKey) private var openAIMonthlyBudgetUSD = ""
+    @AppStorage(AppPreferences.cursorMonthlyBudgetUSDKey) private var cursorMonthlyBudgetUSD = ""
+    @AppStorage(AppPreferences.openRouterMonthlyBudgetCreditsKey) private var openRouterMonthlyBudgetCredits = ""
 
     init() {
         _openRouterKey = State(initialValue: KeychainStore.readOpenRouterKey() ?? "")
@@ -1404,6 +1414,18 @@ private struct SettingsView: View {
                     text: $openAIMonthlyBudgetUSD,
                     placeholder: "optional USD",
                     detail: "Turns current-month OpenAI spend into a comparable budget lane. Leave blank to show spend only."
+                )
+                EditableTextPlanRow(
+                    provider: "Cursor",
+                    text: $cursorMonthlyBudgetUSD,
+                    placeholder: "optional USD",
+                    detail: "Optional spend guardrail for Cursor spend rows. Leave blank to avoid invented limits."
+                )
+                EditableTextPlanRow(
+                    provider: "OpenRouter",
+                    text: $openRouterMonthlyBudgetCredits,
+                    placeholder: "optional credits",
+                    detail: "Optional key-usage guardrail when OpenRouter has no key limit. Account credits stay provider-reported."
                 )
             }
 
