@@ -1,3 +1,7 @@
+
+
+<img width="503" height="743" alt="Screenshot 2026-05-28 at 10 19 41 AM" src="https://github.com/user-attachments/assets/4e1af93a-3199-4858-a952-7ec63cc74b1c" />
+
 # AI Fuel Gauge
 
 [![Release](https://github.com/ozansozuozgit/aifuelgauge/actions/workflows/release.yml/badge.svg)](https://github.com/ozansozuozgit/aifuelgauge/actions/workflows/release.yml)
