@@ -58,6 +58,8 @@ use right now without running into a limit?
   lane without inventing a provider limit.
 - Configurable menu bar display modes: detail, pair, sparkline, compact, or
   minimal.
+- Menu bar provider focus can stay automatic or pin the menu label to Codex,
+  Cursor, Claude Code, OpenRouter, or OpenAI without hiding the dashboard.
 - Data controls to reveal or clear the local usage-history file.
 - App maintenance controls to check the latest GitHub release, open releases,
   copy the Homebrew update command, or reveal the installed standalone app.

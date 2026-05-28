@@ -155,6 +155,18 @@ final class UsageStatusTests: XCTestCase {
         XCTAssertEqual(summary.menuBarTitle(mode: .pair), "Cursor 59% · Codex 5h 86% left")
     }
 
+    func testMenuBarProviderFocusPinsProviderWithoutChangingSummaryPrimary() {
+        let summary = UsageSummary(snapshots: [
+            snapshot(provider: .codex, label: "5h", percent: 0.14, reset: 3600),
+            snapshot(provider: .cursor, label: "Included total", percent: 0.59, reset: 7200)
+        ])
+
+        XCTAssertEqual(summary.primarySnapshot?.provider, .cursor)
+        XCTAssertEqual(summary.menuBarTitle(mode: .detailed, providerFocus: .codex), "Codex 5h 86% left · 1h")
+        XCTAssertEqual(summary.menuBarTitle(mode: .compact, providerFocus: .cursor), "Cursor 59%")
+        XCTAssertEqual(summary.menuBarTitle(mode: .detailed, providerFocus: .openRouter), "AI usage")
+    }
+
     func testNotificationThresholdsOnlyFireOnceWhenCrossedUpwards() {
         let thresholds = ThresholdTracker(thresholds: [0.5, 0.75, 0.9])
 

@@ -184,6 +184,7 @@ private enum AppPreferences {
     static let staleWarningsEnabledKey = "staleWarningsEnabled"
     static let refreshIntervalSecondsKey = "refreshIntervalSeconds"
     static let menuBarDisplayModeKey = "menuBarDisplayMode"
+    static let menuBarProviderFocusKey = "menuBarProviderFocus"
     static let openAIMonthlyBudgetUSDKey = "openAIMonthlyBudgetUSD"
     static let cursorMonthlyBudgetUSDKey = "cursorMonthlyBudgetUSD"
     static let openRouterMonthlyBudgetCreditsKey = "openRouterMonthlyBudgetCredits"
@@ -209,6 +210,7 @@ private enum AppPreferences {
             staleWarningsEnabledKey: true,
             refreshIntervalSecondsKey: 180,
             menuBarDisplayModeKey: MenuBarDisplayMode.detailed.rawValue,
+            menuBarProviderFocusKey: MenuBarProviderFocus.auto.rawValue,
             openAIMonthlyBudgetUSDKey: "",
             cursorMonthlyBudgetUSDKey: "",
             openRouterMonthlyBudgetCreditsKey: "",
@@ -263,6 +265,11 @@ private enum AppPreferences {
     static var menuBarDisplayMode: MenuBarDisplayMode {
         let rawValue = UserDefaults.standard.string(forKey: menuBarDisplayModeKey) ?? MenuBarDisplayMode.detailed.rawValue
         return MenuBarDisplayMode(rawValue: rawValue) ?? .detailed
+    }
+
+    static var menuBarProviderFocus: MenuBarProviderFocus {
+        let rawValue = UserDefaults.standard.string(forKey: menuBarProviderFocusKey) ?? MenuBarProviderFocus.auto.rawValue
+        return MenuBarProviderFocus(rawValue: rawValue) ?? .auto
     }
 
     static func budgetPreferences() -> UsageBudgetPreferences {
@@ -381,6 +388,7 @@ private final class DashboardController: ObservableObject {
             history: loadedHistory.percentsBySnapshotID,
             historySamples: loadedHistory.samplesBySnapshotID,
             monitoredProviders: AppPreferences.monitoredProviders,
+            menuBarProviderFocus: AppPreferences.menuBarProviderFocus,
             menuBarDisplayMode: AppPreferences.menuBarDisplayMode
         )
         startAutoRefresh()
@@ -502,6 +510,7 @@ private final class DashboardController: ObservableObject {
             history: history.percentsBySnapshotID,
             historySamples: history.samplesBySnapshotID,
             monitoredProviders: monitoredProviders,
+            menuBarProviderFocus: AppPreferences.menuBarProviderFocus,
             menuBarDisplayMode: AppPreferences.menuBarDisplayMode
         )
         writeStatusExport()
@@ -1449,6 +1458,7 @@ private struct SettingsView: View {
     @AppStorage(AppPreferences.staleWarningsEnabledKey) private var staleWarningsEnabled = true
     @AppStorage(AppPreferences.refreshIntervalSecondsKey) private var refreshIntervalSeconds = 180
     @AppStorage(AppPreferences.menuBarDisplayModeKey) private var menuBarDisplayMode = MenuBarDisplayMode.detailed.rawValue
+    @AppStorage(AppPreferences.menuBarProviderFocusKey) private var menuBarProviderFocus = MenuBarProviderFocus.auto.rawValue
     @AppStorage(AppPreferences.openAIMonthlyBudgetUSDKey) private var openAIMonthlyBudgetUSD = ""
     @AppStorage(AppPreferences.cursorMonthlyBudgetUSDKey) private var cursorMonthlyBudgetUSD = ""
     @AppStorage(AppPreferences.openRouterMonthlyBudgetCreditsKey) private var openRouterMonthlyBudgetCredits = ""
@@ -1535,7 +1545,16 @@ private struct SettingsView: View {
                     Text("Minimal").tag(MenuBarDisplayMode.minimal.rawValue)
                 }
                 .pickerStyle(.segmented)
-                Text("Detail includes reset time. Pair shows two useful lanes. Trend adds recent mini-history. Compact drops reset. Minimal shows only the tightest percentage.")
+                Picker("Focus", selection: $menuBarProviderFocus) {
+                    Text("Auto").tag(MenuBarProviderFocus.auto.rawValue)
+                    Text("Codex").tag(MenuBarProviderFocus.codex.rawValue)
+                    Text("Cursor").tag(MenuBarProviderFocus.cursor.rawValue)
+                    Text("Claude").tag(MenuBarProviderFocus.claudeCode.rawValue)
+                    Text("OpenRouter").tag(MenuBarProviderFocus.openRouter.rawValue)
+                    Text("OpenAI").tag(MenuBarProviderFocus.openAI.rawValue)
+                }
+                .pickerStyle(.segmented)
+                Text("Display controls density. Focus pins which provider drives the menu bar label; Auto still chooses the tightest useful lane.")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.secondary)
             }

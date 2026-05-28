@@ -745,10 +745,11 @@ public struct DashboardViewModel: Equatable, Sendable {
         history: [String: [Double]] = [:],
         historySamples: [String: [UsageHistorySample]] = [:],
         monitoredProviders: Set<Provider> = Set(Provider.allCases),
+        menuBarProviderFocus: MenuBarProviderFocus = .auto,
         menuBarDisplayMode: MenuBarDisplayMode = .detailed
     ) {
         let visibleSummary = UsageSummary(snapshots: summary.snapshots.filter { monitoredProviders.contains($0.provider) })
-        self.title = visibleSummary.menuBarTitle(mode: menuBarDisplayMode, history: history)
+        self.title = visibleSummary.menuBarTitle(mode: menuBarDisplayMode, history: history, providerFocus: menuBarProviderFocus)
         self.state = visibleSummary.overallState
         self.statusLabel = Self.statusLabel(for: visibleSummary.overallState)
         self.subtitle = Self.subtitle(for: visibleSummary, now: now)

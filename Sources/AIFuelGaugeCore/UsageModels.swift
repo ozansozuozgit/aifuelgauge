@@ -54,6 +54,26 @@ public enum MenuBarDisplayMode: String, Codable, Equatable, Hashable, CaseIterab
     case minimal
 }
 
+public enum MenuBarProviderFocus: String, Codable, Equatable, Hashable, CaseIterable, Sendable {
+    case auto
+    case codex
+    case cursor
+    case claudeCode
+    case openRouter
+    case openAI
+
+    public var provider: Provider? {
+        switch self {
+        case .auto: nil
+        case .codex: .codex
+        case .cursor: .cursor
+        case .claudeCode: .claudeCode
+        case .openRouter: .openRouter
+        case .openAI: .openAI
+        }
+    }
+}
+
 public struct UsageAccount: Codable, Equatable, Hashable, Sendable {
     public let identifier: String
     public let displayName: String
@@ -234,7 +254,18 @@ public struct UsageSummary: Equatable, Sendable {
         menuBarTitle(mode: .detailed)
     }
 
-    public func menuBarTitle(mode: MenuBarDisplayMode, history: [String: [Double]] = [:]) -> String {
+    public func menuBarTitle(
+        mode: MenuBarDisplayMode,
+        history: [String: [Double]] = [:],
+        providerFocus: MenuBarProviderFocus = .auto
+    ) -> String {
+        if let provider = providerFocus.provider {
+            let focusedSummary = UsageSummary(snapshots: snapshots.filter { $0.provider == provider })
+            if focusedSummary.snapshots.isEmpty {
+                return "AI usage"
+            }
+            return focusedSummary.menuBarTitle(mode: mode, history: history, providerFocus: .auto)
+        }
         guard let primarySnapshot else {
             return "AI usage"
         }
