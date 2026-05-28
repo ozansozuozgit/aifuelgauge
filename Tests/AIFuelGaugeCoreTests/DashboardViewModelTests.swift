@@ -287,6 +287,56 @@ final class DashboardViewModelTests: XCTestCase {
         ])
     }
 
+    func testResetTimelineSkipsExhaustedLanesWhenUsableResetsExist() {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "cursor-account", displayName: "Cursor", plan: "Pro"),
+                label: "API usage",
+                used: .percent(100),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 60),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                label: "5h",
+                used: .percent(45),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3_600),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                label: "Weekly",
+                used: .percent(62),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 7_200),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .openRouter,
+                source: .officialAPI,
+                label: "main",
+                used: .credits(97),
+                limit: .credits(100),
+                reset: .rollingWindow(secondsRemaining: 10_800),
+                confidence: .exact,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        XCTAssertEqual(model.resetTimeline.map(\.title), ["Codex · 5h", "Codex · Weekly", "OpenRouter · main"])
+        XCTAssertFalse(model.resetTimeline.contains { $0.title == "Cursor · Pro · API usage" })
+    }
+
     func testGuidanceItemsSeparateMostRoomFromTightestLane() {
         let now = Date(timeIntervalSince1970: 100)
         let model = DashboardViewModel(summary: UsageSummary(snapshots: [

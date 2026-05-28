@@ -1259,11 +1259,15 @@ public struct DashboardViewModel: Equatable, Sendable {
     }
 
     private static func resetTimeline(for summary: UsageSummary, now: Date) -> [DashboardResetItem] {
-        summary.snapshots
+        let resettable = summary.snapshots
             .compactMap { snapshot -> (UsageSnapshot, TimeInterval)? in
                 guard let reset = snapshot.reset, !snapshot.isSubscriptionOnly else { return nil }
                 return (snapshot, secondsRemaining(for: reset, now: now))
             }
+
+        let usable = resettable.filter { $0.0.state != .exhausted }
+        let candidates = usable.count >= 3 ? usable : resettable
+        return candidates
             .sorted { lhs, rhs in
                 if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
                 return rowTitle(for: lhs.0) < rowTitle(for: rhs.0)

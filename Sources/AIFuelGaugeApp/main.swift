@@ -745,6 +745,7 @@ private struct DashboardView: View {
                 Text("Usable").tag(LaneFilter.usable)
                 Text("All").tag(LaneFilter.all)
             }
+            .labelsHidden()
             .pickerStyle(.segmented)
             .frame(width: 118)
             Spacer()
