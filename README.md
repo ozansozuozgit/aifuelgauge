@@ -15,6 +15,9 @@ use right now without running into a limit?
 - OpenRouter connector for:
   - `GET /api/v1/key`
   - `GET /api/v1/credits`
+- OpenAI connector for organization usage/cost visibility:
+  - `GET /v1/organization/costs`
+  - `GET /v1/organization/usage/completions`
 - Codex account connector using the local Codex OAuth file at `~/.codex/auth.json`
   and the Codex account usage endpoint.
 - Cursor account connector using local Cursor auth state and the current-period
@@ -50,8 +53,10 @@ use right now without running into a limit?
 - Data controls to reveal or clear the local usage-history file.
 - Copyable compact status snapshot plus a full diagnostics report for source
   status, history counts, and current refresh warnings without secrets.
-- Paste-friendly macOS Keychain storage for an OpenRouter API key.
+- Paste-friendly macOS Keychain storage for OpenRouter and OpenAI API keys.
 - OpenRouter key test action verifies exact usage access before saving.
+- OpenAI Admin key test action verifies official cost/usage access before
+  saving.
 - Cursor live-usage test verifies local account auth and current-period lanes
   without exposing the token.
 - Cursor spend rows come from the provider response instead of a hardcoded plan
@@ -59,7 +64,7 @@ use right now without running into a limit?
 - Background refresh so opening the menu item does not block on large local logs.
 - Local source change polling refreshes sooner when Claude/Codex/Cursor state
   changes between normal sync intervals.
-- Optional live OpenRouter polling when a key is saved in Settings.
+- Optional live OpenRouter and OpenAI polling when keys are saved in Settings.
 
 ## Install standalone
 
@@ -152,6 +157,9 @@ make package
   total, API usage, and auto usage. If live usage fails, it falls back to a
   subscription label instead of showing a fake limit.
 - OpenRouter values are exact when an API key is saved in Settings.
+- OpenAI organization cost/token values are exact when an Admin key is saved in
+  Settings, but they are shown as spend/activity rows instead of fake quota
+  limits.
 - Menu bar display modes control space: Detail shows provider, tightest lane,
   percentage, and reset; Compact drops reset; Minimal shows only percentage.
 
@@ -165,8 +173,7 @@ Do not pretend estimates are exact. The app should always distinguish:
 
 ## Next useful build slices
 
-1. Add OpenAI usage/cost connector.
-2. Replace OpenCode placeholder with SQLite-backed usage parsing.
-3. Add configurable menu bar sparklines.
-4. Add WidgetKit widgets for the active provider and tightest quota.
-5. Add Homebrew cask and signed/notarized release builds.
+1. Replace OpenCode placeholder with SQLite-backed usage parsing.
+2. Add configurable menu bar sparklines.
+3. Add WidgetKit widgets for the active provider and tightest quota.
+4. Add Homebrew cask and signed/notarized release builds.

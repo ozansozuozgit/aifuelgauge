@@ -625,6 +625,30 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.rows.first?.detail, "resets in 1h · Exact · account · now")
     }
 
+    func testOpenAICostRowsStayExactWithoutPretendingQuotaCapacity() {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .openAI,
+                source: .officialAPI,
+                label: "Current month costs",
+                used: .usd(12.5),
+                limit: nil,
+                reset: .fixed(Date(timeIntervalSince1970: 200)),
+                confidence: .exact,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        XCTAssertNil(model.primaryGauge)
+        XCTAssertEqual(model.title, "OAI $12.50")
+        XCTAssertEqual(model.insight, "1 exact spend/activity row connected. Quota alerts still need comparable limits.")
+        XCTAssertEqual(model.rows.first?.title, "OpenAI · Current month costs")
+        XCTAssertEqual(model.rows.first?.value, "$12.50")
+        XCTAssertEqual(model.rows.first?.meterPercent, nil)
+        XCTAssertEqual(model.rows.first?.explanation, "Exact from OpenAI organization usage APIs. Spend and token activity are shown without inventing a hard limit.")
+    }
+
     func testViewModelUsesConfiguredMenuBarDisplayMode() {
         let now = Date(timeIntervalSince1970: 100)
         let summary = UsageSummary(snapshots: [

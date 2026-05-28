@@ -465,6 +465,20 @@ private final class DashboardController: ObservableObject {
                 }
             }
 
+            if let openAIAdminKey = KeychainStore.readOpenAIAdminKey(), !openAIAdminKey.isEmpty {
+                let connector = OpenAIConnector()
+                do {
+                    snapshots.append(try await connector.fetchCurrentMonthCosts(adminKey: openAIAdminKey))
+                } catch {
+                    warnings.append("OpenAI costs failed")
+                }
+                do {
+                    snapshots.append(try await connector.fetchCurrentMonthCompletionsUsage(adminKey: openAIAdminKey))
+                } catch {
+                    warnings.append("OpenAI usage failed")
+                }
+            }
+
             let summary = UsageSummary(snapshots: snapshots)
             return (summary, warnings.isEmpty ? nil : warnings.joined(separator: " · "))
         }.value
@@ -1176,8 +1190,11 @@ private final class SettingsWindowController {
 
 private struct SettingsView: View {
     @State private var openRouterKey: String
+    @State private var openAIAdminKey: String
     @State private var message: String = "Stored in macOS Keychain. Not synced."
+    @State private var openAIMessage: String = "Stored in macOS Keychain. Admin key is used only for OpenAI usage/cost APIs."
     @State private var isTestingOpenRouterKey = false
+    @State private var isTestingOpenAIKey = false
     @State private var cursorMessage: String
     @State private var isTestingCursorUsage = false
     @State private var historyMessage: String = "History stores only lane IDs, timestamps, and percentages."
@@ -1200,6 +1217,7 @@ private struct SettingsView: View {
 
     init() {
         _openRouterKey = State(initialValue: KeychainStore.readOpenRouterKey() ?? "")
+        _openAIAdminKey = State(initialValue: KeychainStore.readOpenAIAdminKey() ?? "")
         let cursorState = CursorAccountStateReader(
             cursorDirectory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Cursor")
         ).read()
@@ -1214,33 +1232,34 @@ private struct SettingsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Provider keys")
-                    .font(.system(size: 17, weight: .semibold, design: .rounded))
-                Text("Local-first sources stay automatic. Add keys only for providers that expose official usage metadata.")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-
-            SettingsPanel {
-                Text("Plan labels")
-                    .font(.system(size: 11, weight: .semibold))
-                EditablePlanRow(provider: "Codex", value: "Auto from account", detail: "Exact plan and quota from ~/.codex/auth.json when available.")
-                EditableTextPlanRow(provider: "Claude Code", text: $claudeCodePlanLabel, placeholder: "Free", detail: "Shown with local token estimates. Clear it if this is wrong.")
-                EditableTextPlanRow(provider: "Cursor", text: $cursorPlanOverride, placeholder: detectedCursorPlan, detail: "Detected: \(detectedCursorPlan) · \(detectedCursorStatus) · \(detectedCursorAccount). Override only if needed.")
-                HStack(spacing: 8) {
-                    Button(isTestingCursorUsage ? "Testing Cursor" : "Test Cursor") {
-                        testCursorUsage()
-                    }
-                    .disabled(isTestingCursorUsage)
-                    .help("Verify live Cursor usage without exposing your token")
-                    Text(cursorMessage)
-                        .font(.system(size: 9, weight: .medium))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Provider keys")
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    Text("Local-first sources stay automatic. Add keys only for providers that expose official usage metadata.")
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
                 }
-            }
+
+                SettingsPanel {
+                    Text("Plan labels")
+                        .font(.system(size: 11, weight: .semibold))
+                    EditablePlanRow(provider: "Codex", value: "Auto from account", detail: "Exact plan and quota from ~/.codex/auth.json when available.")
+                    EditableTextPlanRow(provider: "Claude Code", text: $claudeCodePlanLabel, placeholder: "Free", detail: "Shown with local token estimates. Clear it if this is wrong.")
+                    EditableTextPlanRow(provider: "Cursor", text: $cursorPlanOverride, placeholder: detectedCursorPlan, detail: "Detected: \(detectedCursorPlan) · \(detectedCursorStatus) · \(detectedCursorAccount). Override only if needed.")
+                    HStack(spacing: 8) {
+                        Button(isTestingCursorUsage ? "Testing Cursor" : "Test Cursor") {
+                            testCursorUsage()
+                        }
+                        .disabled(isTestingCursorUsage)
+                        .help("Verify live Cursor usage without exposing your token")
+                        Text(cursorMessage)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
 
             SettingsPanel {
                 Text("Menu bar")
@@ -1316,9 +1335,54 @@ private struct SettingsView: View {
                     .disabled(isTestingOpenRouterKey)
                     .help("Test without saving")
                 }
+                HStack(spacing: 8) {
+                    Button("Save OpenRouter") {
+                        saveOpenRouterKey()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    Button("Delete") {
+                        KeychainStore.deleteOpenRouterKey()
+                        openRouterKey = ""
+                        message = "OpenRouter key deleted."
+                    }
+                    Spacer()
+                }
                 Text(message)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
+            }
+
+            SettingsPanel {
+                Text("OpenAI Admin key")
+                    .font(.system(size: 11, weight: .semibold))
+                HStack(spacing: 8) {
+                    SecureField("sk-admin-...", text: $openAIAdminKey)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Paste") {
+                        pasteOpenAIAdminKey()
+                    }
+                    .help("Paste from clipboard")
+                    Button(isTestingOpenAIKey ? "Testing" : "Test") {
+                        testOpenAIAdminKey()
+                    }
+                    .disabled(isTestingOpenAIKey)
+                    .help("Test without saving")
+                }
+                HStack(spacing: 8) {
+                    Button("Save OpenAI") {
+                        saveOpenAIAdminKey()
+                    }
+                    Button("Delete") {
+                        KeychainStore.deleteOpenAIAdminKey()
+                        openAIAdminKey = ""
+                        openAIMessage = "OpenAI Admin key deleted."
+                    }
+                    Spacer()
+                }
+                Text(openAIMessage)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
 
             SettingsPanel {
@@ -1339,8 +1403,6 @@ private struct SettingsView: View {
                     .lineLimit(2)
             }
 
-            Spacer()
-
             VStack(spacing: 8) {
                 HStack {
                     Button("Cursor usage") {
@@ -1349,29 +1411,16 @@ private struct SettingsView: View {
                     Button("OpenRouter usage") {
                         NSWorkspace.shared.open(URL(string: "https://openrouter.ai/settings/credits")!)
                     }
-                    Spacer()
-                }
-                HStack {
-                    Button("Delete key") {
-                        KeychainStore.deleteOpenRouterKey()
-                        openRouterKey = ""
-                        message = "OpenRouter key deleted."
+                    Button("OpenAI usage") {
+                        NSWorkspace.shared.open(URL(string: "https://platform.openai.com/usage")!)
                     }
                     Spacer()
-                    Button("Save key") {
-                        do {
-                            try KeychainStore.saveOpenRouterKey(openRouterKey)
-                            message = "OpenRouter key saved. Refresh will use it for live API polling."
-                        } catch {
-                            message = "Could not save key: \(error.localizedDescription)"
-                        }
-                    }
-                    .keyboardShortcut(.defaultAction)
                 }
             }
         }
         .padding(18)
-        .frame(width: 540, height: 860)
+    }
+    .frame(width: 560, height: 860)
     }
 
     private func pasteOpenRouterKey() {
@@ -1381,6 +1430,33 @@ private struct SettingsView: View {
         }
         openRouterKey = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
         message = "Pasted from clipboard. Save to store it in Keychain."
+    }
+
+    private func pasteOpenAIAdminKey() {
+        guard let pasted = NSPasteboard.general.string(forType: .string) else {
+            openAIMessage = "Clipboard does not contain text."
+            return
+        }
+        openAIAdminKey = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+        openAIMessage = "Pasted from clipboard. Save to store it in Keychain."
+    }
+
+    private func saveOpenRouterKey() {
+        do {
+            try KeychainStore.saveOpenRouterKey(openRouterKey)
+            message = "OpenRouter key saved. Refresh will use it for live API polling."
+        } catch {
+            message = "Could not save key: \(error.localizedDescription)"
+        }
+    }
+
+    private func saveOpenAIAdminKey() {
+        do {
+            try KeychainStore.saveOpenAIAdminKey(openAIAdminKey)
+            openAIMessage = "OpenAI Admin key saved. Refresh will use it for cost and usage polling."
+        } catch {
+            openAIMessage = "Could not save key: \(error.localizedDescription)"
+        }
     }
 
     private func testOpenRouterKey() {
@@ -1404,6 +1480,31 @@ private struct SettingsView: View {
             await MainActor.run {
                 message = result
                 isTestingOpenRouterKey = false
+            }
+        }
+    }
+
+    private func testOpenAIAdminKey() {
+        let key = openAIAdminKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else {
+            openAIMessage = OpenAISetupCheck.failureMessage(error: ConnectorError.emptyAPIKey)
+            return
+        }
+        isTestingOpenAIKey = true
+        openAIMessage = "Testing OpenAI Admin key..."
+        Task {
+            let result: String
+            do {
+                let connector = OpenAIConnector()
+                let costs = try await connector.fetchCurrentMonthCosts(adminKey: key)
+                let tokens = try? await connector.fetchCurrentMonthCompletionsUsage(adminKey: key)
+                result = OpenAISetupCheck.successMessage(costs: costs, tokens: tokens)
+            } catch {
+                result = OpenAISetupCheck.failureMessage(error: error)
+            }
+            await MainActor.run {
+                openAIMessage = result
+                isTestingOpenAIKey = false
             }
         }
     }
@@ -1549,12 +1650,37 @@ private struct AlertProfileRow: View {
 private enum KeychainStore {
     private static let service = "AI Fuel Gauge"
     private static let openRouterAccount = "openrouter-api-key"
+    private static let openAIAdminAccount = "openai-admin-api-key"
 
     static func readOpenRouterKey() -> String? {
+        read(account: openRouterAccount)
+    }
+
+    static func readOpenAIAdminKey() -> String? {
+        read(account: openAIAdminAccount)
+    }
+
+    static func saveOpenRouterKey(_ key: String) throws {
+        try save(key, account: openRouterAccount)
+    }
+
+    static func saveOpenAIAdminKey(_ key: String) throws {
+        try save(key, account: openAIAdminAccount)
+    }
+
+    static func deleteOpenRouterKey() {
+        delete(account: openRouterAccount)
+    }
+
+    static func deleteOpenAIAdminKey() {
+        delete(account: openAIAdminAccount)
+    }
+
+    private static func read(account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: openRouterAccount,
+            kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
@@ -1566,17 +1692,17 @@ private enum KeychainStore {
         return String(data: data, encoding: .utf8)
     }
 
-    static func saveOpenRouterKey(_ key: String) throws {
+    private static func save(_ key: String, account: String) throws {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            deleteOpenRouterKey()
+            delete(account: account)
             return
         }
         let data = Data(trimmed.utf8)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: openRouterAccount
+            kSecAttrAccount as String: account
         ]
         let attributes: [String: Any] = [kSecValueData as String: data]
         let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
@@ -1590,11 +1716,11 @@ private enum KeychainStore {
         }
     }
 
-    static func deleteOpenRouterKey() {
+    private static func delete(account: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: openRouterAccount
+            kSecAttrAccount as String: account
         ]
         SecItemDelete(query as CFDictionary)
     }

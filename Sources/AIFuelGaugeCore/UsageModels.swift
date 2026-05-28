@@ -234,8 +234,14 @@ public struct UsageSummary: Equatable, Sendable {
     }
 
     public func menuBarTitle(mode: MenuBarDisplayMode) -> String {
-        guard let primarySnapshot, let percent = primarySnapshot.usagePercent else {
+        guard let primarySnapshot else {
             return "AI usage"
+        }
+        guard let percent = primarySnapshot.usagePercent else {
+            guard primarySnapshot.confidence == .exact, primarySnapshot.source == .officialAPI else {
+                return "AI usage"
+            }
+            return Self.menuBarUnboundedSegment(for: primarySnapshot)
         }
         switch mode {
         case .detailed:
@@ -284,6 +290,23 @@ public struct UsageSummary: Equatable, Sendable {
         return "\(base) · \(resetTitle)"
     }
 
+    private static func menuBarUnboundedSegment(for snapshot: UsageSnapshot) -> String {
+        switch snapshot.used {
+        case .usd(let value):
+            return "\(snapshot.provider.shortName) $\(format(value))"
+        case .tokens(let input, let output, let cacheRead, let cacheWrite):
+            let total = input + output + cacheRead + cacheWrite
+            guard total > 0 else { return snapshot.provider.shortName }
+            return "\(snapshot.provider.shortName) \(compact(total)) tok"
+        case .credits(let value):
+            return "\(snapshot.provider.shortName) \(format(value)) cr"
+        case .requests(let value):
+            return "\(snapshot.provider.shortName) \(compact(value)) req"
+        case .percent(let value):
+            return "\(snapshot.provider.shortName) \(Int(value.rounded()))%"
+        }
+    }
+
     private static func prefersForPrimary(_ lhs: UsageSnapshot, _ rhs: UsageSnapshot) -> Bool {
         if lhs.state != rhs.state { return lhs.state > rhs.state }
 
@@ -322,6 +345,26 @@ public struct UsageSummary: Equatable, Sendable {
         if label.contains("5h") || label.contains("session") { return "5h" }
         if label.contains("weekly") || label.contains("week") || label.contains("7d") { return "Wk" }
         return nil
+    }
+
+    private static func compact(_ value: Int) -> String {
+        let absValue = abs(value)
+        let sign = value < 0 ? "-" : ""
+        if absValue >= 1_000_000_000 {
+            return sign + String(format: "%.2fB", Double(absValue) / 1_000_000_000)
+        }
+        if absValue >= 1_000_000 {
+            return sign + String(format: "%.2fM", Double(absValue) / 1_000_000)
+        }
+        if absValue >= 1_000 {
+            return sign + String(format: "%.1fK", Double(absValue) / 1_000)
+        }
+        return "\(value)"
+    }
+
+    private static func format(_ value: Double) -> String {
+        if value >= 100 { return String(format: "%.0f", value) }
+        return String(format: "%.2f", value)
     }
 }
 

@@ -51,6 +51,24 @@ final class UsageStatusTests: XCTestCase {
         XCTAssertEqual(summary.menuBarTitle, "AI usage")
     }
 
+    func testExactOfficialSpendCanShowInMenuBarWithoutAQuotaLimit() {
+        let openAI = UsageSnapshot(
+            provider: .openAI,
+            source: .officialAPI,
+            label: "Current month costs",
+            used: .usd(42.5),
+            limit: nil,
+            reset: nil,
+            confidence: .exact,
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let summary = UsageSummary(snapshots: [openAI])
+
+        XCTAssertEqual(summary.primarySnapshot?.usagePercent, nil)
+        XCTAssertEqual(summary.menuBarTitle, "OAI $42.50")
+    }
+
     func testCodexMenuBarPrefersSessionLaneWhileWeeklyIsHealthy() {
         let summary = UsageSummary(snapshots: [
             snapshot(provider: .codex, label: "5h", percent: 0.14, reset: 3600),

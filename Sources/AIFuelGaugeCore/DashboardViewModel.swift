@@ -682,6 +682,12 @@ public struct DashboardViewModel: Equatable, Sendable {
         guard let snapshot = summary.primarySnapshot, let percent = snapshot.usagePercent else {
             let subscriptionCount = summary.snapshots.filter(\.isSubscriptionOnly).count
             let localCount = summary.snapshots.filter { $0.source == .localLogs }.count
+            let exactUnboundedCount = summary.snapshots.filter {
+                $0.confidence == .exact && $0.source == .officialAPI && $0.usagePercent == nil
+            }.count
+            if exactUnboundedCount > 0 {
+                return "\(exactUnboundedCount) exact spend/activity row\(exactUnboundedCount == 1 ? "" : "s") connected. Quota alerts still need comparable limits."
+            }
             if subscriptionCount > 0 {
                 return "\(subscriptionCount) subscription label\(subscriptionCount == 1 ? "" : "s") found. Usage limits still need exact connectors."
             }
@@ -998,6 +1004,8 @@ public struct DashboardViewModel: Equatable, Sendable {
             }
         }
         switch (snapshot.provider, snapshot.source, snapshot.confidence) {
+        case (.openAI, .officialAPI, .exact):
+            return "Exact from OpenAI organization usage APIs. Spend and token activity are shown without inventing a hard limit."
         case (.openRouter, .officialAPI, .exact):
             return "Exact from official OpenRouter API. Shows comparable credits with remaining capacity and refresh freshness."
         case (.codex, .experimentalWebSession, .exact):
