@@ -124,8 +124,22 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-This is not notarized yet. On first launch, macOS may require you to approve
-the app in Privacy & Security.
+Release signing and notarization are optional. If the GitHub repository has the
+following secrets, the release workflow imports the Developer ID certificate,
+signs with hardened runtime, submits the zip to Apple notary service, staples
+the ticket, and then publishes the final zip:
+
+- `MACOS_CERTIFICATE_P12_BASE64`
+- `MACOS_CERTIFICATE_PASSWORD`
+- `MACOS_KEYCHAIN_PASSWORD`
+- `MACOS_CODESIGN_IDENTITY`
+- `APPLE_ID`
+- `APPLE_TEAM_ID`
+- `APPLE_APP_SPECIFIC_PASSWORD`
+
+Without those secrets, local and CI packaging still works with ad-hoc signing.
+Unsigned/ad-hoc builds may require approval in macOS Privacy & Security on first
+launch.
 
 ## Run
 
@@ -199,4 +213,4 @@ Do not pretend estimates are exact. The app should always distinguish:
 ## Next useful build slices
 
 1. Add a native WidgetKit extension that reads the local status export.
-2. Add signed/notarized release builds.
+2. Add Sparkle or Homebrew-based update guidance inside the app.

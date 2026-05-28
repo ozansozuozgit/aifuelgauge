@@ -61,7 +61,11 @@ iconutil -c icns "$iconset_path" -o "$resources_dir/AppIcon.icns" >&2
 rm -rf "$iconset_path"
 
 if command -v codesign >/dev/null 2>&1; then
-  codesign --force --deep --sign - "$app_path" >/dev/null 2>&1 || true
+  if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
+    codesign --force --deep --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$app_path" >&2
+  else
+    codesign --force --deep --sign - "$app_path" >/dev/null 2>&1 || true
+  fi
 fi
 
 echo "$app_path"

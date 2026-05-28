@@ -35,6 +35,8 @@ final class PackagingScriptTests: XCTestCase {
         XCTAssertTrue(script.contains("scripts/build-app-icon.swift"), "package-app.sh should generate the iconset")
         XCTAssertTrue(script.contains("iconutil -c icns"), "package-app.sh should compile an icns file")
         XCTAssertTrue(script.contains("codesign --force --deep --sign -"), "bundle should be ad-hoc signed for local standalone installs")
+        XCTAssertTrue(script.contains("CODESIGN_IDENTITY"), "bundle should support Developer ID signing when configured")
+        XCTAssertTrue(script.contains("--options runtime --timestamp"), "Developer ID signing should use hardened runtime and timestamping")
         XCTAssertTrue(script.contains("swift build -c \"$configuration\" --product aifuelgauge >&2"), "package-app.sh should keep stdout machine-readable for installers")
     }
 
@@ -62,8 +64,13 @@ final class PackagingScriptTests: XCTestCase {
         XCTAssertTrue(script.contains("ditto -c -k --keepParent"), "release zip should preserve the .app bundle structure on macOS")
         XCTAssertTrue(script.contains("shasum -a 256"), "release zip should publish a checksum")
         XCTAssertTrue(script.contains("AI-Fuel-Gauge-latest.zip"), "release zip should publish a stable asset for Homebrew")
+        XCTAssertTrue(script.contains("xcrun notarytool submit"), "release zip should support notarization when Apple credentials are configured")
+        XCTAssertTrue(script.contains("xcrun stapler staple"), "release zip should staple the notarization ticket before final zipping")
         XCTAssertTrue(workflow.contains("runs-on: macos-14"), "release packaging should run on macOS")
         XCTAssertTrue(workflow.contains("swift test"), "release workflow should test before packaging")
+        XCTAssertTrue(workflow.contains("MACOS_CERTIFICATE_P12_BASE64"), "release workflow should optionally import a Developer ID certificate")
+        XCTAssertTrue(workflow.contains("MACOS_CODESIGN_IDENTITY"), "release workflow should pass the signing identity to packaging")
+        XCTAssertTrue(workflow.contains("APPLE_APP_SPECIFIC_PASSWORD"), "release workflow should pass notarization credentials to packaging")
         XCTAssertTrue(workflow.contains("gh release create"), "tagged builds should create a GitHub release")
         XCTAssertTrue(makefile.contains("release-zip:"), "Makefile should expose release packaging locally")
     }

@@ -16,13 +16,34 @@ fi
 
 rm -f "$zip_path" "$zip_path.sha256" "$latest_zip_path" "$latest_zip_path.sha256"
 
-if command -v ditto >/dev/null 2>&1; then
-  ditto -c -k --keepParent "$app_path" "$zip_path"
-else
-  (
-    cd "$(dirname "$app_path")"
-    zip -qry "$zip_path" "$(basename "$app_path")"
-  )
+create_zip() {
+  local output_path="$1"
+  rm -f "$output_path"
+  if command -v ditto >/dev/null 2>&1; then
+    ditto -c -k --keepParent "$app_path" "$output_path"
+  else
+    (
+      cd "$(dirname "$app_path")"
+      zip -qry "$output_path" "$(basename "$app_path")"
+    )
+  fi
+}
+
+create_zip "$zip_path"
+
+if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
+  if ! command -v xcrun >/dev/null 2>&1; then
+    echo "xcrun is required for notarization" >&2
+    exit 1
+  fi
+  echo "Submitting $zip_name for notarization..." >&2
+  xcrun notarytool submit "$zip_path" \
+    --apple-id "$APPLE_ID" \
+    --team-id "$APPLE_TEAM_ID" \
+    --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+    --wait >&2
+  xcrun stapler staple "$app_path" >&2
+  create_zip "$zip_path"
 fi
 
 shasum -a 256 "$zip_path" > "$zip_path.sha256"
