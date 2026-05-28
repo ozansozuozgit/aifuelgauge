@@ -11,6 +11,7 @@ public struct DashboardGauge: Equatable, Sendable {
     public let confidence: Confidence
     public let paceCaption: String?
     public let dashboardURL: String?
+    public let receiptText: String
 
     public init(
         title: String,
@@ -22,7 +23,8 @@ public struct DashboardGauge: Equatable, Sendable {
         state: UsageState,
         confidence: Confidence,
         paceCaption: String? = nil,
-        dashboardURL: String? = nil
+        dashboardURL: String? = nil,
+        receiptText: String = ""
     ) {
         self.title = title
         self.value = value
@@ -34,6 +36,7 @@ public struct DashboardGauge: Equatable, Sendable {
         self.confidence = confidence
         self.paceCaption = paceCaption
         self.dashboardURL = dashboardURL
+        self.receiptText = receiptText
     }
 }
 
@@ -510,7 +513,8 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
                     state: gauge.state.rawValue,
                     confidence: gauge.confidence.rawValue,
                     pace: gauge.paceCaption,
-                    dashboardURL: gauge.dashboardURL
+                    dashboardURL: gauge.dashboardURL,
+                    receipt: gauge.receiptText
                 )
             },
             guidance: model.guidanceItems.map { item in
@@ -530,6 +534,7 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
                     trend: row.trendPercents,
                     trendCaption: row.trendCaption,
                     pace: row.paceCaption,
+                    receipt: row.receiptText,
                     explanation: row.explanation,
                     confidence: row.confidence.rawValue,
                     state: row.state.rawValue
@@ -564,6 +569,7 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
         public let confidence: String
         public let pace: String?
         public let dashboardURL: String?
+        public let receipt: String
     }
 
     public struct Reset: Codable, Equatable, Sendable {
@@ -591,6 +597,7 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
         public let trend: [Double]
         public let trendCaption: String?
         public let pace: String?
+        public let receipt: String
         public let explanation: String
         public let confidence: String
         public let state: String
@@ -616,6 +623,7 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
     public let trendPercents: [Double]
     public let trendCaption: String?
     public let paceCaption: String?
+    public let receiptText: String
     public let confidence: Confidence
     public let state: UsageState
 
@@ -631,6 +639,7 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
         trendPercents: [Double] = [],
         trendCaption: String? = nil,
         paceCaption: String? = nil,
+        receiptText: String = "",
         confidence: Confidence,
         state: UsageState
     ) {
@@ -645,6 +654,7 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
         self.trendPercents = trendPercents
         self.trendCaption = trendCaption
         self.paceCaption = paceCaption
+        self.receiptText = receiptText
         self.confidence = confidence
         self.state = state
     }
@@ -755,18 +765,34 @@ public struct DashboardViewModel: Equatable, Sendable {
             .filter { $0.id != hiddenPrimaryID }
             .sorted(by: Self.prefersRowOrder)
             .map { snapshot in
-                DashboardRow(
+                let title = Self.rowTitle(for: snapshot)
+                let value = Self.value(for: snapshot)
+                let detail = Self.detail(for: snapshot, now: now)
+                let dashboardURL = Self.dashboardURL(for: snapshot)
+                let trendCaption = Self.trendCaption(for: snapshot, history: history)
+                let paceCaption = Self.paceCaption(for: snapshot, historySamples: historySamples, now: now)
+                return DashboardRow(
                     id: snapshot.id,
-                    title: Self.rowTitle(for: snapshot),
-                    value: Self.value(for: snapshot),
-                    detail: Self.detail(for: snapshot, now: now),
-                    dashboardURL: Self.dashboardURL(for: snapshot),
+                    title: title,
+                    value: value,
+                    detail: detail,
+                    dashboardURL: dashboardURL,
                     explanation: Self.explanation(for: snapshot),
                     meterPercent: snapshot.usagePercent.map { min(max($0, 0), 1) },
                     meterLabel: Self.remainingLabel(for: snapshot),
                     trendPercents: Self.trendPercents(for: snapshot, history: history),
-                    trendCaption: Self.trendCaption(for: snapshot, history: history),
-                    paceCaption: Self.paceCaption(for: snapshot, historySamples: historySamples, now: now),
+                    trendCaption: trendCaption,
+                    paceCaption: paceCaption,
+                    receiptText: Self.receiptText(
+                        for: snapshot,
+                        title: title,
+                        value: value,
+                        detail: detail,
+                        dashboardURL: dashboardURL,
+                        trendCaption: trendCaption,
+                        paceCaption: paceCaption,
+                        now: now
+                    ),
                     confidence: snapshot.confidence,
                     state: snapshot.state
                 )
@@ -851,6 +877,8 @@ public struct DashboardViewModel: Equatable, Sendable {
         let subtitle = prefersRemainingDisplay(snapshot)
             ? "\(confidenceLabel(snapshot.confidence)) · left · \(reset)"
             : "\(confidenceLabel(snapshot.confidence)) · \(reset)"
+        let paceCaption = paceCaption(for: snapshot, historySamples: historySamples, now: now)
+        let dashboardURL = dashboardURL(for: snapshot)
         return DashboardGauge(
             title: Self.rowTitle(for: snapshot),
             value: value,
@@ -860,8 +888,18 @@ public struct DashboardViewModel: Equatable, Sendable {
             percent: clamped,
             state: snapshot.state,
             confidence: snapshot.confidence,
-            paceCaption: paceCaption(for: snapshot, historySamples: historySamples, now: now),
-            dashboardURL: dashboardURL(for: snapshot)
+            paceCaption: paceCaption,
+            dashboardURL: dashboardURL,
+            receiptText: Self.receiptText(
+                for: snapshot,
+                title: Self.rowTitle(for: snapshot),
+                value: value,
+                detail: "\(subtitle) · \(gaugeCaption(for: snapshot) ?? "Limit window active")",
+                dashboardURL: dashboardURL,
+                trendCaption: nil,
+                paceCaption: paceCaption,
+                now: now
+            )
         )
     }
 
@@ -1346,6 +1384,52 @@ public struct DashboardViewModel: Equatable, Sendable {
         return parts.joined(separator: " · ")
     }
 
+    private static func receiptText(
+        for snapshot: UsageSnapshot,
+        title: String,
+        value: String,
+        detail: String,
+        dashboardURL: String?,
+        trendCaption: String?,
+        paceCaption: String?,
+        now: Date
+    ) -> String {
+        var lines = [
+            "AI Fuel Gauge lane receipt",
+            "Lane: \(title)",
+            "Value: \(value)",
+            "Detail: \(detail)",
+            "State: \(snapshot.state.rawValue)",
+            "Confidence: \(snapshot.confidence.rawValue)",
+            "Source: \(sourceLabel(snapshot.source))",
+            "Updated: \(iso8601(snapshot.updatedAt)) (\(relativeTime(from: snapshot.updatedAt, now: now)))"
+        ]
+        if let usagePercent = snapshot.usagePercent {
+            lines.append("Meter: \(Int((min(max(usagePercent, 0), 1) * 100).rounded()))% used")
+        }
+        if let reset = snapshot.reset {
+            lines.append("Reset: \(resetPhrase(for: reset, now: now))")
+        }
+        if let account = snapshot.account?.displayTitle, !account.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            lines.append("Account: \(account)")
+        }
+        if let trendCaption, !trendCaption.isEmpty {
+            lines.append("Trend: \(trendCaption)")
+        }
+        if let paceCaption, !paceCaption.isEmpty {
+            lines.append("Pace: \(paceCaption)")
+        }
+        if let dashboardURL, !dashboardURL.isEmpty {
+            lines.append("Dashboard: \(dashboardURL)")
+        }
+        let explanation = explanation(for: snapshot)
+        if !explanation.isEmpty {
+            lines.append("Explanation: \(explanation)")
+        }
+        lines.append("Privacy: no prompts, API keys, auth tokens, or raw provider responses included.")
+        return lines.joined(separator: "\n")
+    }
+
     private static func accountHint(for snapshot: UsageSnapshot) -> String? {
         guard let identityHint = snapshot.account?.identityHint?.trimmingCharacters(in: .whitespacesAndNewlines), !identityHint.isEmpty else {
             return nil
@@ -1405,6 +1489,12 @@ public struct DashboardViewModel: Equatable, Sendable {
         case .officialAPI: "API"
         case .experimentalWebSession: "account"
         }
+    }
+
+    private static func iso8601(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
     }
 
     private static func prefersRowOrder(_ lhs: UsageSnapshot, _ rhs: UsageSnapshot) -> Bool {

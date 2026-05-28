@@ -947,6 +947,16 @@ private struct PrimaryGaugeView: View {
                     Text(gauge.value)
                         .font(.system(size: 22, weight: .semibold, design: .rounded))
                         .monospacedDigit()
+                    Button {
+                        copyToPasteboard(gauge.receiptText)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 18, height: 18)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Copy lane receipt")
                     if let dashboardURL = gauge.dashboardURL, let url = URL(string: dashboardURL) {
                         Button {
                             NSWorkspace.shared.open(url)
@@ -1069,6 +1079,16 @@ private struct SourceRowView: View {
                     .monospacedDigit()
                     .foregroundStyle(row.state == .unknown ? .secondary : .primary)
                     .lineLimit(1)
+                Button {
+                    copyToPasteboard(row.receiptText)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16, height: 16)
+                }
+                .buttonStyle(.plain)
+                .help("Copy lane receipt")
                 if let dashboardURL = row.dashboardURL, let url = URL(string: dashboardURL) {
                     Button {
                         NSWorkspace.shared.open(url)
@@ -2181,6 +2201,11 @@ private func color(for state: UsageState) -> Color {
     case .exhausted: Color(red: 0.70, green: 0.18, blue: 0.18)
     case .unknown: Color(red: 0.50, green: 0.53, blue: 0.58)
     }
+}
+
+private func copyToPasteboard(_ value: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(value, forType: .string)
 }
 
 private enum DemoData {
