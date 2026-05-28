@@ -195,6 +195,39 @@ final class DashboardViewModelTests: XCTestCase {
         ])
     }
 
+    func testCodexAccountRowsExplainGeneralAndModelSpecificQuotaWindows() {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "codex-account", displayName: "Codex", plan: "Pro"),
+                label: "5h",
+                used: .percent(18),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3_600),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "codex-account", displayName: "Codex", plan: "Pro"),
+                label: "Spark model · 5h",
+                used: .percent(64),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3_600),
+                confidence: .exact,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        XCTAssertEqual(model.primaryGauge?.title, "Codex · Pro · Spark model · 5h")
+        XCTAssertEqual(model.primaryGauge?.explanation, "Exact from Codex account usage. Spark is a model-specific quota reported separately from the general 5h window.")
+        XCTAssertEqual(model.rows.first?.title, "Codex · Pro · 5h")
+        XCTAssertEqual(model.rows.first?.explanation, "Exact from Codex account usage. The 5h window is the active session limit; Weekly is the longer reserve.")
+    }
+
     func testResetTimelineShowsSoonestWindowsWithCapacity() {
         let now = Date(timeIntervalSince1970: 100)
         let model = DashboardViewModel(summary: UsageSummary(snapshots: [
@@ -278,7 +311,7 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.rows.map(\.title), ["Codex · Weekly"])
         XCTAssertEqual(model.rows.map(\.value), ["54% left"])
         XCTAssertEqual(model.rows[0].detail, "46% used · resets Sat 7 PM (3d) · Exact · account · now")
-        XCTAssertEqual(model.rows[0].explanation, "")
+        XCTAssertEqual(model.rows[0].explanation, "Exact from Codex account usage. The 5h window is the active session limit; Weekly is the longer reserve.")
     }
 
     func testSourceHealthFlagsFallbackSetupAndStaleSources() {

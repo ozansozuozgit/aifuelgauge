@@ -1149,7 +1149,10 @@ public struct DashboardViewModel: Equatable, Sendable {
         case (.openRouter, .officialAPI, .exact):
             return "Exact from official OpenRouter API. Shows comparable credits with remaining capacity and refresh freshness."
         case (.codex, .experimentalWebSession, .exact):
-            return ""
+            if snapshot.label.localizedCaseInsensitiveContains("spark") {
+                return "Exact from Codex account usage. Spark is a model-specific quota reported separately from the general 5h window."
+            }
+            return "Exact from Codex account usage. The 5h window is the active session limit; Weekly is the longer reserve."
         case (.cursor, .experimentalWebSession, .exact):
             return "Exact from Cursor account usage. Uses the local Cursor auth token; no prompt text is read."
         case (.codex, .localLogs, .exact):

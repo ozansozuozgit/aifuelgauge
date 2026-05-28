@@ -74,6 +74,10 @@ use right now without running into a limit?
   without exposing the token.
 - Cursor detected plan/status can be refreshed in Settings after signing in or
   switching accounts.
+- Plan labels show Claude Code from your setting, Codex from the account usage
+  response, and Cursor from local account state unless you override it.
+- Codex model-specific limits, such as Spark, are explained as separate quotas
+  instead of looking like duplicate 5h rows.
 - Cursor spend rows come from the provider response instead of a hardcoded plan
   budget.
 - Background refresh so opening the menu item does not block on large local logs.
