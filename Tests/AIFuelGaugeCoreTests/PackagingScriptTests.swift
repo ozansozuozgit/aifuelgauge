@@ -12,12 +12,14 @@ final class PackagingScriptTests: XCTestCase {
         let releaseZipScript = root.appendingPathComponent("scripts/package-release-zip.sh")
         let launchAgentScript = root.appendingPathComponent("scripts/install-launch-agent.sh")
         let uninstallScript = root.appendingPathComponent("scripts/uninstall.sh")
+        let cask = root.appendingPathComponent("Casks/ai-fuel-gauge.rb")
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: packageScript.path), "package-app.sh should build a real .app bundle")
         XCTAssertTrue(FileManager.default.fileExists(atPath: iconScript.path), "build-app-icon.swift should create the app icon")
         XCTAssertTrue(FileManager.default.fileExists(atPath: releaseZipScript.path), "package-release-zip.sh should build a GitHub release artifact")
         XCTAssertTrue(FileManager.default.fileExists(atPath: launchAgentScript.path), "install-launch-agent.sh should install Launch at Login")
         XCTAssertTrue(FileManager.default.fileExists(atPath: uninstallScript.path), "uninstall.sh should remove the standalone install")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cask.path), "repo should include a tap-friendly Homebrew cask")
     }
 
     func testPackagingScriptBuildsMenuBarOnlyBundleMetadata() throws {
@@ -59,9 +61,24 @@ final class PackagingScriptTests: XCTestCase {
         XCTAssertTrue(script.contains("scripts/package-app.sh"), "release zip should reuse the normal app packaging script")
         XCTAssertTrue(script.contains("ditto -c -k --keepParent"), "release zip should preserve the .app bundle structure on macOS")
         XCTAssertTrue(script.contains("shasum -a 256"), "release zip should publish a checksum")
+        XCTAssertTrue(script.contains("AI-Fuel-Gauge-latest.zip"), "release zip should publish a stable asset for Homebrew")
         XCTAssertTrue(workflow.contains("runs-on: macos-14"), "release packaging should run on macOS")
         XCTAssertTrue(workflow.contains("swift test"), "release workflow should test before packaging")
         XCTAssertTrue(workflow.contains("gh release create"), "tagged builds should create a GitHub release")
         XCTAssertTrue(makefile.contains("release-zip:"), "Makefile should expose release packaging locally")
+    }
+
+    func testHomebrewCaskUsesStableLatestReleaseAsset() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let cask = try String(contentsOf: root.appendingPathComponent("Casks/ai-fuel-gauge.rb"))
+
+        XCTAssertTrue(cask.contains("cask \"ai-fuel-gauge\" do"), "cask should use a stable token")
+        XCTAssertTrue(cask.contains("AI-Fuel-Gauge-latest.zip"), "cask should install from the stable latest release asset")
+        XCTAssertTrue(cask.contains("app \"AI Fuel Gauge.app\""), "cask should install the packaged app bundle")
+        XCTAssertTrue(cask.contains("depends_on macos: \">= :sonoma\""), "cask should match the package platform")
+        XCTAssertTrue(cask.contains("~/Library/Application Support/AI Fuel Gauge"), "cask should document app data cleanup")
     }
 }

@@ -70,6 +70,14 @@ use right now without running into a limit?
 
 ## Install standalone
 
+Homebrew cask from this repo:
+
+```bash
+brew install --cask https://raw.githubusercontent.com/ozansozuozgit/aifuelgauge/main/Casks/ai-fuel-gauge.rb
+```
+
+Or build and install a standalone app from source:
+
 Build and install a standalone menu bar app into `~/Applications`, with a
 LaunchAgent so it starts at login:
 
@@ -106,8 +114,8 @@ make release-zip
 ```
 
 To publish a GitHub release, push a version tag. The release workflow runs
-tests on macOS, builds `AI Fuel Gauge.app`, uploads a zipped app artifact, and
-attaches a `.sha256` checksum.
+tests on macOS, builds `AI Fuel Gauge.app`, uploads versioned and stable
+`AI-Fuel-Gauge-latest.zip` app artifacts, and attaches `.sha256` checksums.
 
 ```bash
 git tag v0.1.0
@@ -178,4 +186,4 @@ Do not pretend estimates are exact. The app should always distinguish:
 ## Next useful build slices
 
 1. Add WidgetKit widgets for the active provider and tightest quota.
-2. Add Homebrew cask and signed/notarized release builds.
+2. Add signed/notarized release builds.
