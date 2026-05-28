@@ -678,16 +678,6 @@ private struct DashboardView: View {
         VStack(alignment: .leading, spacing: 12) {
             header
             InsightStrip(text: model.insight, state: model.state)
-            if !model.guidanceItems.isEmpty {
-                GuidanceStrip(items: model.guidanceItems)
-            }
-            SourceHealthStrip(items: model.sourceHealth)
-            if !model.setupGuidance.isEmpty {
-                SetupGuidanceView(items: model.setupGuidance)
-            }
-            if !model.resetTimeline.isEmpty {
-                ResetTimelineStrip(items: model.resetTimeline)
-            }
             if let gauge = model.primaryGauge {
                 PrimaryGaugeView(gauge: gauge, showsDetails: showLaneDetails)
             } else {
@@ -709,6 +699,16 @@ private struct DashboardView: View {
                 }
                 .frame(maxHeight: 220)
                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            if !model.guidanceItems.isEmpty {
+                GuidanceStrip(items: model.guidanceItems)
+            }
+            if !model.resetTimeline.isEmpty {
+                ResetTimelineStrip(items: model.resetTimeline)
+            }
+            SourceHealthStrip(items: model.sourceHealth)
+            if !model.setupGuidance.isEmpty {
+                SetupGuidanceView(items: model.setupGuidance)
             }
             footer
         }

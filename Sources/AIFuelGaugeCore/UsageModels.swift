@@ -270,7 +270,7 @@ public struct UsageSummary: Equatable, Sendable {
             }
             return focusedSummary.menuBarTitle(mode: mode, history: history, providerFocus: .auto)
         }
-        guard let primarySnapshot else {
+        guard let primarySnapshot = Self.menuBarSnapshot(in: snapshots) else {
             return "AI usage"
         }
         guard let percent = primarySnapshot.usagePercent else {
@@ -283,7 +283,7 @@ public struct UsageSummary: Equatable, Sendable {
         case .detailed:
             break
         case .pair:
-            let lanes = snapshots
+            let lanes = Self.menuBarSnapshots(in: snapshots)
                 .filter { $0.usagePercent != nil }
                 .sorted(by: Self.prefersForPrimary)
                 .prefix(2)
@@ -313,6 +313,24 @@ public struct UsageSummary: Equatable, Sendable {
             return "\(percentage)%\(qualifier)"
         }
         return Self.menuBarSegment(for: primarySnapshot, includeReset: true)
+    }
+
+    private static func menuBarSnapshot(in snapshots: [UsageSnapshot]) -> UsageSnapshot? {
+        menuBarSnapshots(in: snapshots)
+            .sorted(by: Self.prefersForPrimary)
+            .first
+    }
+
+    private static func menuBarSnapshots(in snapshots: [UsageSnapshot]) -> [UsageSnapshot] {
+        let comparable = snapshots.filter { $0.usagePercent != nil && !$0.isSubscriptionOnly }
+        let usable = comparable.filter { $0.state != .exhausted }
+        if !usable.isEmpty {
+            return usable
+        }
+        if !comparable.isEmpty {
+            return comparable
+        }
+        return snapshots
     }
 
     private static func menuBarSegment(for snapshot: UsageSnapshot, includeReset: Bool) -> String {
