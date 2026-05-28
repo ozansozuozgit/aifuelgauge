@@ -396,7 +396,8 @@ public enum DashboardStatusSnapshot {
             lines.append("")
             lines.append("Guidance:")
             for item in model.guidanceItems {
-                lines.append("- \(item.title): \(item.value) · \(item.detail)")
+                let reason = item.reason.isEmpty ? "" : " · \(item.reason)"
+                lines.append("- \(item.title): \(item.value) · \(item.detail)\(reason)")
             }
         }
 
@@ -499,7 +500,7 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
                 )
             },
             guidance: model.guidanceItems.map { item in
-                Guidance(title: item.title, value: item.value, detail: item.detail, state: item.state.rawValue)
+                Guidance(title: item.title, value: item.value, detail: item.detail, reason: item.reason, state: item.state.rawValue)
             },
             resets: model.resetTimeline.map { item in
                 Reset(title: item.title, detail: item.detail, value: item.value, state: item.state.rawValue)
@@ -560,6 +561,7 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
         public let title: String
         public let value: String
         public let detail: String
+        public let reason: String
         public let state: String
     }
 
@@ -679,13 +681,15 @@ public struct DashboardGuidanceItem: Equatable, Identifiable, Sendable {
     public let title: String
     public let value: String
     public let detail: String
+    public let reason: String
     public let state: UsageState
 
-    public init(id: String, title: String, value: String, detail: String, state: UsageState) {
+    public init(id: String, title: String, value: String, detail: String, reason: String = "", state: UsageState) {
         self.id = id
         self.title = title
         self.value = value
         self.detail = detail
+        self.reason = reason
         self.state = state
     }
 }
@@ -1003,6 +1007,7 @@ public struct DashboardViewModel: Equatable, Sendable {
                 title: "Most room",
                 value: rowTitle(for: mostRoom),
                 detail: guidanceDetail(for: mostRoom, now: now),
+                reason: "Lowest used comparable lane.",
                 state: mostRoom.state
             ))
         }
@@ -1012,6 +1017,7 @@ public struct DashboardViewModel: Equatable, Sendable {
                 title: "Tightest",
                 value: rowTitle(for: tightest),
                 detail: guidanceDetail(for: tightest, now: now),
+                reason: "Highest used comparable lane.",
                 state: tightest.state
             ))
         }

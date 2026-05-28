@@ -666,6 +666,12 @@ private struct GuidanceStrip: View {
                         .font(.system(size: 8, weight: .medium))
                         .foregroundStyle(.secondary.opacity(0.82))
                         .lineLimit(1)
+                    if !item.reason.isEmpty {
+                        Text(item.reason)
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(.secondary.opacity(0.72))
+                            .lineLimit(1)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 9)

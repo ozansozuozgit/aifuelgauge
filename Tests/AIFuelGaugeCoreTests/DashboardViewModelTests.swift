@@ -318,8 +318,22 @@ final class DashboardViewModelTests: XCTestCase {
         ]), now: now)
 
         XCTAssertEqual(model.guidanceItems, [
-            DashboardGuidanceItem(id: "most-room-codex-5h", title: "Most room", value: "Codex · 5h", detail: "82% left · resets in 1h · Exact", state: .safe),
-            DashboardGuidanceItem(id: "tightest-openRouter-main", title: "Tightest", value: "OpenRouter · main", detail: "24 credits left · resets in 2h · Exact", state: .caution)
+            DashboardGuidanceItem(
+                id: "most-room-codex-5h",
+                title: "Most room",
+                value: "Codex · 5h",
+                detail: "82% left · resets in 1h · Exact",
+                reason: "Lowest used comparable lane.",
+                state: .safe
+            ),
+            DashboardGuidanceItem(
+                id: "tightest-openRouter-main",
+                title: "Tightest",
+                value: "OpenRouter · main",
+                detail: "24 credits left · resets in 2h · Exact",
+                reason: "Highest used comparable lane.",
+                state: .caution
+            )
         ])
     }
 
@@ -427,6 +441,16 @@ final class DashboardViewModelTests: XCTestCase {
                 label: "5h",
                 used: .percent(20),
                 limit: .percent(100),
+                reset: nil,
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .openRouter,
+                source: .officialAPI,
+                label: "main",
+                used: .credits(10),
+                limit: .credits(100),
                 reset: nil,
                 confidence: .exact,
                 updatedAt: now
@@ -632,6 +656,16 @@ final class DashboardViewModelTests: XCTestCase {
                 updatedAt: now
             ),
             UsageSnapshot(
+                provider: .openRouter,
+                source: .officialAPI,
+                label: "main",
+                used: .credits(10),
+                limit: .credits(100),
+                reset: nil,
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
                 provider: .cursor,
                 source: .localLogs,
                 account: UsageAccount(identifier: "cursor-local", displayName: "Cursor", plan: "Pro"),
@@ -649,6 +683,8 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertTrue(snapshot.contains("AI Fuel Gauge Status"))
         XCTAssertTrue(snapshot.contains("Menu: Codex 5h 80% left · 1h"))
         XCTAssertTrue(snapshot.contains("Primary: Codex · 5h · 80% · Exact · left · resets in 1h"))
+        XCTAssertTrue(snapshot.contains("Guidance:"))
+        XCTAssertTrue(snapshot.contains("Tightest: Codex · 5h · 80% left · resets in 1h · Exact · Highest used comparable lane."))
         XCTAssertTrue(snapshot.contains("Cursor: Plan found, usage missing · Open Cursor while signed in, then refresh for live account usage."))
         XCTAssertTrue(snapshot.contains("Privacy: status includes source names, percentages, and timing only."))
         XCTAssertFalse(snapshot.localizedCaseInsensitiveContains("token:"))
@@ -694,6 +730,7 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(export.primary?.explanation, "Exact from Cursor account usage. Uses the local Cursor auth token; no prompt text is read.")
         XCTAssertEqual(export.guidance.map(\.title), ["Most room", "Tightest"])
         XCTAssertEqual(export.guidance.map(\.value), ["Codex · 5h", "Cursor · Pro · Included total"])
+        XCTAssertEqual(export.guidance.map(\.reason), ["Lowest used comparable lane.", "Highest used comparable lane."])
         XCTAssertEqual(export.lanes.map(\.title), ["Cursor · Pro · Included total", "Codex · 5h"])
         XCTAssertEqual(export.lanes.map(\.meterLabel), ["50% left", "80% left"])
         XCTAssertEqual(export.lanes.first?.explanation, "Exact from Cursor account usage. Uses the local Cursor auth token; no prompt text is read.")
