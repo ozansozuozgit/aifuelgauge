@@ -710,13 +710,36 @@ private struct DashboardView: View {
     @State private var showLaneDetails = false
 
     private var model: DashboardViewModel { controller.model }
+    private var usageRows: [DashboardRow] {
+        guard let gauge = model.primaryGauge,
+              !model.rows.contains(where: { $0.title == gauge.title }) else {
+            return model.rows
+        }
+        let valueSuffix = gauge.subtitle.localizedCaseInsensitiveContains("left") ? " left" : " used"
+        let primaryRow = DashboardRow(
+            id: "primary-\(gauge.title)-\(gauge.subtitle)",
+            title: gauge.title,
+            value: "\(gauge.value)\(valueSuffix)",
+            detail: gauge.subtitle,
+            dashboardURL: gauge.dashboardURL,
+            explanation: gauge.explanation,
+            meterPercent: gauge.percent,
+            meterLabel: gauge.caption,
+            paceCaption: gauge.paceCaption,
+            receiptText: gauge.receiptText,
+            confidence: gauge.confidence,
+            state: gauge.state
+        )
+        return [primaryRow] + model.rows
+    }
+
     private var visibleRows: [DashboardRow] {
         switch laneFilter {
         case .usable:
-            let usable = model.rows.filter { $0.state != .exhausted && $0.state != .unknown }
-            return usable.isEmpty ? model.rows : usable
+            let usable = usageRows.filter { $0.state != .exhausted && $0.state != .unknown }
+            return usable.isEmpty ? usageRows : usable
         case .all:
-            return model.rows
+            return usageRows
         }
     }
 
@@ -724,14 +747,10 @@ private struct DashboardView: View {
         VStack(alignment: .leading, spacing: 12) {
             header
             InsightStrip(text: model.insight, state: model.state)
-            if let gauge = model.primaryGauge {
-                PrimaryGaugeView(gauge: gauge, showsDetails: showLaneDetails)
-            } else {
+            if usageRows.isEmpty {
                 UnknownGaugeView()
-            }
-            if model.rows.isEmpty, model.primaryGauge == nil {
                 EmptySourcesView()
-            } else if !model.rows.isEmpty {
+            } else {
                 laneToolbar
                 ScrollView {
                     VStack(spacing: 0) {
@@ -743,16 +762,14 @@ private struct DashboardView: View {
                         }
                     }
                 }
-                .frame(maxHeight: 220)
+                .frame(maxHeight: showLaneDetails ? 430 : 390)
                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
-            if !model.guidanceItems.isEmpty {
-                GuidanceStrip(items: model.guidanceItems)
-            }
-            if !model.resetTimeline.isEmpty {
-                ResetTimelineStrip(items: model.resetTimeline)
-            }
-            SourceHealthStrip(items: model.sourceHealth)
+            ContextStrip(
+                guidanceItems: model.guidanceItems,
+                resetItems: model.resetTimeline,
+                healthItems: model.sourceHealth
+            )
             if !model.setupGuidance.isEmpty {
                 SetupGuidanceView(items: model.setupGuidance)
             }
@@ -784,8 +801,8 @@ private struct DashboardView: View {
 
     private var laneToolbar: some View {
         HStack(spacing: 10) {
-            Text("Lanes")
-                .font(.system(size: 10, weight: .semibold))
+            Text("Usage")
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundStyle(.secondary)
             Picker("Lane filter", selection: $laneFilter) {
                 Text("Usable").tag(LaneFilter.usable)
@@ -794,6 +811,10 @@ private struct DashboardView: View {
             .labelsHidden()
             .pickerStyle(.segmented)
             .frame(width: 118)
+            Text("\(visibleRows.count)")
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.secondary.opacity(0.72))
             Spacer()
             Toggle(isOn: $showLaneDetails) {
                 Image(systemName: "text.justify.left")
@@ -828,42 +849,50 @@ private enum LaneFilter: Hashable {
     case all
 }
 
-private struct GuidanceStrip: View {
-    let items: [DashboardGuidanceItem]
+private struct ContextStrip: View {
+    let guidanceItems: [DashboardGuidanceItem]
+    let resetItems: [DashboardResetItem]
+    let healthItems: [DashboardSourceHealthItem]
+
+    private var guidanceSummary: String? {
+        let nonObvious = guidanceItems.filter { item in
+            item.title.localizedCaseInsensitiveContains("spike")
+        }
+        let source = nonObvious.first ?? guidanceItems.first
+        guard let source else { return nil }
+        return "\(source.title): \(source.value)"
+    }
+
+    private var resetSummary: String? {
+        guard let reset = resetItems.first else { return nil }
+        return "Next reset \(reset.value), \(reset.title)"
+    }
+
+    private var healthSummary: String? {
+        guard !healthItems.isEmpty else { return nil }
+        return healthItems.map { "\($0.title.lowercased()) \($0.value)" }.joined(separator: ", ")
+    }
 
     var body: some View {
-        HStack(spacing: 7) {
-            ForEach(items) { item in
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(color(for: item.state))
-                            .frame(width: 5, height: 5)
-                        Text(item.title)
-                            .font(.system(size: 9, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.secondary)
-                    }
-                    Text(item.value)
-                        .font(.system(size: 11, weight: .semibold))
+        let chips = [guidanceSummary, resetSummary, healthSummary].compactMap { $0 }
+        if !chips.isEmpty {
+            HStack(spacing: 7) {
+                Text("Context")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary.opacity(0.72))
+                ForEach(Array(chips.prefix(3).enumerated()), id: \.offset) { _, chip in
+                    Text(chip)
+                        .font(.system(size: 9, weight: .semibold))
                         .lineLimit(1)
-                    Text(item.detail)
-                        .font(.system(size: 8, weight: .medium))
-                        .foregroundStyle(.secondary.opacity(0.82))
-                        .lineLimit(1)
-                    if !item.reason.isEmpty {
-                        Text(item.reason)
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(.secondary.opacity(0.72))
-                            .lineLimit(1)
-                    }
+                        .foregroundStyle(.secondary.opacity(0.78))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(Color(nsColor: .controlBackgroundColor).opacity(0.42), in: Capsule())
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 8)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.64), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Spacer(minLength: 0)
             }
+            .accessibilityLabel(chips.joined(separator: ", "))
         }
-        .accessibilityLabel(items.map { "\($0.title): \($0.value), \($0.detail)" }.joined(separator: ", "))
     }
 }
 
@@ -914,80 +943,6 @@ private struct SetupGuidanceView: View {
     }
 }
 
-private struct ResetTimelineStrip: View {
-    let items: [DashboardResetItem]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 5) {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Text("Next resets")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
-            HStack(spacing: 7) {
-                ForEach(items) { item in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(alignment: .firstTextBaseline, spacing: 5) {
-                            Circle()
-                                .fill(color(for: item.state))
-                                .frame(width: 5, height: 5)
-                            Text(item.title)
-                                .font(.system(size: 10, weight: .semibold))
-                                .lineLimit(1)
-                        }
-                        Text(item.value)
-                            .font(.system(size: 15, weight: .semibold, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundStyle(color(for: item.state))
-                            .lineLimit(1)
-                        Text(item.detail)
-                            .font(.system(size: 8, weight: .medium))
-                            .foregroundStyle(.secondary.opacity(0.82))
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 8)
-                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.64), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                }
-            }
-        }
-        .accessibilityLabel(items.map { "\($0.title) resets in \($0.value)" }.joined(separator: ", "))
-    }
-}
-
-private struct SourceHealthStrip: View {
-    let items: [DashboardSourceHealthItem]
-
-    var body: some View {
-        HStack(spacing: 7) {
-            ForEach(items) { item in
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(color(for: item.state))
-                        .frame(width: 5, height: 5)
-                    Text(item.title)
-                        .lineLimit(1)
-                    Text(item.value)
-                        .monospacedDigit()
-                        .foregroundStyle(.primary.opacity(0.82))
-                }
-                .font(.system(size: 9, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.64), in: Capsule())
-            }
-            Spacer(minLength: 0)
-        }
-        .accessibilityLabel(items.map { "\($0.title) \($0.value)" }.joined(separator: ", "))
-    }
-}
-
 private struct InsightStrip: View {
     let text: String
     let state: UsageState
@@ -1021,102 +976,6 @@ private struct InsightStrip: View {
         case .critical, .exhausted: "exclamationmark.triangle.fill"
         case .unknown: "questionmark.circle.fill"
         }
-    }
-}
-
-private struct PrimaryGaugeView: View {
-    let gauge: DashboardGauge
-    let showsDetails: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(gauge.title)
-                        .font(.system(size: 12, weight: .semibold))
-                    Text(gauge.subtitle)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                HStack(alignment: .firstTextBaseline, spacing: 7) {
-                    Text(gauge.value)
-                        .font(.system(size: 22, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                    Button {
-                        copyToPasteboard(gauge.receiptText)
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 18, height: 18)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Copy lane receipt")
-                    if let dashboardURL = gauge.dashboardURL, let url = URL(string: dashboardURL) {
-                        Button {
-                            NSWorkspace.shared.open(url)
-                        } label: {
-                            Image(systemName: "arrow.up.forward.square")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 18, height: 18)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Open provider dashboard")
-                    }
-                }
-            }
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(.quaternary)
-                    Capsule()
-                        .fill(color(for: gauge.state).gradient)
-                        .frame(width: max(8, proxy.size.width * gauge.percent))
-                }
-            }
-            .frame(height: 7)
-            HStack {
-                Text(gauge.caption)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(color(for: gauge.state))
-                Spacer()
-                Text("Used")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary.opacity(0.75))
-            }
-            if let paceCaption = gauge.paceCaption, showsDetails || paceCaption.localizedCaseInsensitiveContains("warning") {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: paceCaption.localizedCaseInsensitiveContains("warning") ? "speedometer" : "checkmark.circle.fill")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(paceCaption.localizedCaseInsensitiveContains("warning") ? Color.orange : color(for: gauge.state).opacity(0.82))
-                        .frame(width: 10)
-                    Text(paceCaption)
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary.opacity(0.84))
-                        .lineLimit(2)
-                }
-            }
-            if showsDetails, !gauge.explanation.isEmpty {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: gauge.confidence == .exact ? "checkmark.seal.fill" : "info.circle.fill")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(color(for: gauge.state).opacity(gauge.confidence == .unknown ? 0.65 : 0.95))
-                        .frame(width: 10)
-                    Text(gauge.explanation)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary.opacity(0.82))
-                        .lineLimit(2)
-                }
-            }
-        }
-        .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.78), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
-        )
     }
 }
 
@@ -1165,6 +1024,7 @@ private struct SourceRowView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(row.title)
                         .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
                     Text(row.detail)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.secondary)
@@ -1203,7 +1063,6 @@ private struct SourceRowView: View {
                 MiniMeter(percent: percent, label: row.meterLabel ?? "quota lane", state: row.state)
                     .padding(.leading, 16)
             }
-            let paceIsWarning = row.paceCaption?.localizedCaseInsensitiveContains("warning") == true
             if showsDetails, row.trendPercents.count >= 2 {
                 UsageSparkline(samples: row.trendPercents, state: row.state)
                     .frame(height: 18)
@@ -1216,7 +1075,7 @@ private struct SourceRowView: View {
                         .padding(.leading, 16)
                 }
             }
-            if let paceCaption = row.paceCaption, showsDetails || paceIsWarning {
+            if let paceCaption = row.paceCaption, showsDetails {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: paceCaption.localizedCaseInsensitiveContains("warning") ? "speedometer" : "checkmark.circle.fill")
                         .font(.system(size: 9, weight: .semibold))
@@ -1245,6 +1104,7 @@ private struct SourceRowView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 10)
+        .frame(minHeight: showsDetails ? nil : 76, alignment: .topLeading)
     }
 }
 
