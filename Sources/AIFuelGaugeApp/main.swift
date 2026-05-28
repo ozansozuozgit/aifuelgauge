@@ -1230,6 +1230,7 @@ private struct SettingsView: View {
     @State private var cursorMessage: String
     @State private var isTestingCursorUsage = false
     @State private var historyMessage: String = "History stores only lane IDs, timestamps, and percentages."
+    @State private var maintenanceMessage: String = "Use Releases for signed zips, or copy the Homebrew command for terminal updates."
     @State private var detectedCursorPlan: String
     @State private var detectedCursorStatus: String
     @State private var detectedCursorAccount: String
@@ -1439,6 +1440,27 @@ private struct SettingsView: View {
                     .lineLimit(2)
             }
 
+            SettingsPanel {
+                Text("App maintenance")
+                    .font(.system(size: 11, weight: .semibold))
+                HStack(spacing: 8) {
+                    Button("Open releases") {
+                        openReleases()
+                    }
+                    Button("Copy update command") {
+                        copyUpdateCommand()
+                    }
+                    Button("Reveal app") {
+                        revealInstalledApp()
+                    }
+                    Spacer()
+                }
+                Text(maintenanceMessage)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
             VStack(spacing: 8) {
                 HStack {
                     Button("Cursor usage") {
@@ -1603,6 +1625,29 @@ private struct SettingsView: View {
         } catch {
             historyMessage = "Could not clear history: \(error.localizedDescription)"
         }
+    }
+
+    private func openReleases() {
+        NSWorkspace.shared.open(URL(string: "https://github.com/ozansozuozgit/aifuelgauge/releases/latest")!)
+        maintenanceMessage = "Opened the latest GitHub release."
+    }
+
+    private func copyUpdateCommand() {
+        let command = "brew upgrade --cask ai-fuel-gauge || brew install --cask https://raw.githubusercontent.com/ozansozuozgit/aifuelgauge/main/Casks/ai-fuel-gauge.rb"
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
+        maintenanceMessage = "Copied Homebrew update command."
+    }
+
+    private func revealInstalledApp() {
+        let appURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/AI Fuel Gauge.app")
+        if FileManager.default.fileExists(atPath: appURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([appURL])
+            maintenanceMessage = "Revealed installed app in Finder."
+            return
+        }
+        NSWorkspace.shared.open(appURL.deletingLastPathComponent())
+        maintenanceMessage = "Opened ~/Applications. The installed app was not found there."
     }
 }
 

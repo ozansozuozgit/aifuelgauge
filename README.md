@@ -53,6 +53,8 @@ use right now without running into a limit?
 - Configurable menu bar display modes: detail, pair, sparkline, compact, or
   minimal.
 - Data controls to reveal or clear the local usage-history file.
+- App maintenance controls to open the latest release, copy the Homebrew update
+  command, or reveal the installed standalone app.
 - Local `status.json` export for WidgetKit, SketchyBar, Raycast, Übersicht, or
   other status surfaces that need a simple machine-readable snapshot.
 - Copyable compact status snapshot plus a full diagnostics report for source
