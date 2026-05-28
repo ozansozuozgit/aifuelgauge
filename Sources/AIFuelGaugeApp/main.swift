@@ -1397,6 +1397,10 @@ private struct SettingsView: View {
                     .help("Test without saving")
                 }
                 HStack(spacing: 8) {
+                    Button("Paste, Test & Save") {
+                        pasteAndSaveOpenRouterKey()
+                    }
+                    .disabled(isTestingOpenRouterKey)
                     Button("Save OpenRouter") {
                         saveOpenRouterKey()
                     }
@@ -1430,6 +1434,10 @@ private struct SettingsView: View {
                     .help("Test without saving")
                 }
                 HStack(spacing: 8) {
+                    Button("Paste, Test & Save") {
+                        pasteAndSaveOpenAIAdminKey()
+                    }
+                    .disabled(isTestingOpenAIKey)
                     Button("Save OpenAI") {
                         saveOpenAIAdminKey()
                     }
@@ -1521,6 +1529,15 @@ private struct SettingsView: View {
         message = "Pasted from clipboard. Save to store it in Keychain."
     }
 
+    private func pasteAndSaveOpenRouterKey() {
+        guard let pasted = NSPasteboard.general.string(forType: .string) else {
+            message = "Clipboard does not contain text."
+            return
+        }
+        openRouterKey = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+        testOpenRouterKey(saveOnSuccess: true)
+    }
+
     private func pasteOpenAIAdminKey() {
         guard let pasted = NSPasteboard.general.string(forType: .string) else {
             openAIMessage = "Clipboard does not contain text."
@@ -1528,6 +1545,15 @@ private struct SettingsView: View {
         }
         openAIAdminKey = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
         openAIMessage = "Pasted from clipboard. Save to store it in Keychain."
+    }
+
+    private func pasteAndSaveOpenAIAdminKey() {
+        guard let pasted = NSPasteboard.general.string(forType: .string) else {
+            openAIMessage = "Clipboard does not contain text."
+            return
+        }
+        openAIAdminKey = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+        testOpenAIAdminKey(saveOnSuccess: true)
     }
 
     private func saveOpenRouterKey() {
@@ -1548,21 +1574,26 @@ private struct SettingsView: View {
         }
     }
 
-    private func testOpenRouterKey() {
+    private func testOpenRouterKey(saveOnSuccess: Bool = false) {
         let key = openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else {
             message = OpenRouterSetupCheck.failureMessage(error: ConnectorError.emptyAPIKey)
             return
         }
         isTestingOpenRouterKey = true
-        message = "Testing OpenRouter key..."
+        message = saveOnSuccess ? "Testing OpenRouter key before saving..." : "Testing OpenRouter key..."
         Task {
             let result: String
             do {
                 let connector = OpenRouterConnector()
                 let keySnapshot = try await connector.fetchCurrentKeyUsage(apiKey: key)
                 let creditsSnapshot = try? await connector.fetchAccountCredits(apiKey: key)
-                result = OpenRouterSetupCheck.successMessage(keySnapshot: keySnapshot, creditsSnapshot: creditsSnapshot)
+                if saveOnSuccess {
+                    try KeychainStore.saveOpenRouterKey(key)
+                    result = OpenRouterSetupCheck.successMessage(keySnapshot: keySnapshot, creditsSnapshot: creditsSnapshot) + " Saved to Keychain."
+                } else {
+                    result = OpenRouterSetupCheck.successMessage(keySnapshot: keySnapshot, creditsSnapshot: creditsSnapshot)
+                }
             } catch {
                 result = OpenRouterSetupCheck.failureMessage(error: error)
             }
@@ -1573,21 +1604,26 @@ private struct SettingsView: View {
         }
     }
 
-    private func testOpenAIAdminKey() {
+    private func testOpenAIAdminKey(saveOnSuccess: Bool = false) {
         let key = openAIAdminKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else {
             openAIMessage = OpenAISetupCheck.failureMessage(error: ConnectorError.emptyAPIKey)
             return
         }
         isTestingOpenAIKey = true
-        openAIMessage = "Testing OpenAI Admin key..."
+        openAIMessage = saveOnSuccess ? "Testing OpenAI Admin key before saving..." : "Testing OpenAI Admin key..."
         Task {
             let result: String
             do {
                 let connector = OpenAIConnector()
                 let costs = try await connector.fetchCurrentMonthCosts(adminKey: key)
                 let tokens = try? await connector.fetchCurrentMonthCompletionsUsage(adminKey: key)
-                result = OpenAISetupCheck.successMessage(costs: costs, tokens: tokens)
+                if saveOnSuccess {
+                    try KeychainStore.saveOpenAIAdminKey(key)
+                    result = OpenAISetupCheck.successMessage(costs: costs, tokens: tokens) + " Saved to Keychain."
+                } else {
+                    result = OpenAISetupCheck.successMessage(costs: costs, tokens: tokens)
+                }
             } catch {
                 result = OpenAISetupCheck.failureMessage(error: error)
             }

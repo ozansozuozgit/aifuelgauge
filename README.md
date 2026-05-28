@@ -65,6 +65,8 @@ use right now without running into a limit?
   number says whether it came from an official API, Cursor auth, local metadata,
   or a fallback.
 - Paste-friendly macOS Keychain storage for OpenRouter and OpenAI API keys.
+- One-click paste, test, and save flow stores provider keys only after a live
+  provider check succeeds.
 - OpenRouter key test action verifies exact usage access before saving.
 - OpenAI Admin key test action verifies official cost/usage access before
   saving.
