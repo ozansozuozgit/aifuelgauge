@@ -392,6 +392,14 @@ public enum DashboardStatusSnapshot {
             }
         }
 
+        if !model.guidanceItems.isEmpty {
+            lines.append("")
+            lines.append("Guidance:")
+            for item in model.guidanceItems {
+                lines.append("- \(item.title): \(item.value) · \(item.detail)")
+            }
+        }
+
         if !model.resetTimeline.isEmpty {
             lines.append("")
             lines.append("Next resets:")
@@ -438,6 +446,7 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
     public let footerNote: String
     public let trustDigest: String
     public let primary: Primary?
+    public let guidance: [Guidance]
     public let resets: [Reset]
     public let lanes: [Lane]
     public let setup: [Setup]
@@ -450,6 +459,7 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
         footerNote: String,
         trustDigest: String,
         primary: Primary?,
+        guidance: [Guidance],
         resets: [Reset],
         lanes: [Lane],
         setup: [Setup]
@@ -461,6 +471,7 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
         self.footerNote = footerNote
         self.trustDigest = trustDigest
         self.primary = primary
+        self.guidance = guidance
         self.resets = resets
         self.lanes = lanes
         self.setup = setup
@@ -486,6 +497,9 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
                     confidence: gauge.confidence.rawValue,
                     pace: gauge.paceCaption
                 )
+            },
+            guidance: model.guidanceItems.map { item in
+                Guidance(title: item.title, value: item.value, detail: item.detail, state: item.state.rawValue)
             },
             resets: model.resetTimeline.map { item in
                 Reset(title: item.title, detail: item.detail, value: item.value, state: item.state.rawValue)
@@ -539,6 +553,13 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
         public let title: String
         public let detail: String
         public let value: String
+        public let state: String
+    }
+
+    public struct Guidance: Codable, Equatable, Sendable {
+        public let title: String
+        public let value: String
+        public let detail: String
         public let state: String
     }
 
@@ -653,6 +674,22 @@ public struct DashboardSetupItem: Equatable, Identifiable, Sendable {
     }
 }
 
+public struct DashboardGuidanceItem: Equatable, Identifiable, Sendable {
+    public let id: String
+    public let title: String
+    public let value: String
+    public let detail: String
+    public let state: UsageState
+
+    public init(id: String, title: String, value: String, detail: String, state: UsageState) {
+        self.id = id
+        self.title = title
+        self.value = value
+        self.detail = detail
+        self.state = state
+    }
+}
+
 public struct DashboardViewModel: Equatable, Sendable {
     public let title: String
     public let subtitle: String
@@ -661,6 +698,7 @@ public struct DashboardViewModel: Equatable, Sendable {
     public let statusLabel: String
     public let footerNote: String
     public let sourceHealth: [DashboardSourceHealthItem]
+    public let guidanceItems: [DashboardGuidanceItem]
     public let setupGuidance: [DashboardSetupItem]
     public let resetTimeline: [DashboardResetItem]
     public let primaryGauge: DashboardGauge?
@@ -682,6 +720,7 @@ public struct DashboardViewModel: Equatable, Sendable {
         self.trustDigest = Self.trustDigest(for: summary)
         self.footerNote = Self.footerNote(for: summary)
         self.sourceHealth = Self.sourceHealth(for: summary, now: now)
+        self.guidanceItems = Self.guidanceItems(for: summary, now: now)
         self.setupGuidance = Self.setupGuidance(for: summary)
         self.resetTimeline = Self.resetTimeline(for: summary, now: now)
         self.primaryGauge = summary.primarySnapshot.flatMap { Self.gauge(for: $0, historySamples: historySamples, now: now) }
@@ -930,6 +969,67 @@ public struct DashboardViewModel: Equatable, Sendable {
             ))
         }
         return items
+    }
+
+    private static func guidanceItems(for summary: UsageSummary, now: Date) -> [DashboardGuidanceItem] {
+        let comparable = summary.snapshots.filter {
+            $0.usagePercent?.isFinite == true && !$0.isSubscriptionOnly
+        }
+        guard comparable.count >= 2 else { return [] }
+
+        func percentUsed(_ snapshot: UsageSnapshot) -> Double {
+            snapshot.usagePercent ?? 1
+        }
+
+        let mostRoom = comparable
+            .filter { $0.state != .exhausted }
+            .sorted { lhs, rhs in
+                let left = percentUsed(lhs)
+                let right = percentUsed(rhs)
+                if left != right { return left < right }
+                if lhs.confidence != rhs.confidence { return lhs.confidence == .exact }
+                return rowTitle(for: lhs) < rowTitle(for: rhs)
+            }
+            .first
+
+        let tightest = comparable
+            .sorted(by: prefersRowOrder)
+            .first
+
+        var items: [DashboardGuidanceItem] = []
+        if let mostRoom {
+            items.append(DashboardGuidanceItem(
+                id: "most-room-\(mostRoom.id)",
+                title: "Most room",
+                value: rowTitle(for: mostRoom),
+                detail: guidanceDetail(for: mostRoom, now: now),
+                state: mostRoom.state
+            ))
+        }
+        if let tightest, tightest.id != mostRoom?.id {
+            items.append(DashboardGuidanceItem(
+                id: "tightest-\(tightest.id)",
+                title: "Tightest",
+                value: rowTitle(for: tightest),
+                detail: guidanceDetail(for: tightest, now: now),
+                state: tightest.state
+            ))
+        }
+        return items
+    }
+
+    private static func guidanceDetail(for snapshot: UsageSnapshot, now: Date) -> String {
+        var parts: [String] = []
+        if let remaining = remainingLabel(for: snapshot) {
+            parts.append(remaining)
+        } else if let usagePercent = snapshot.usagePercent {
+            parts.append("\(Int((max(0, 1 - usagePercent) * 100).rounded()))% left")
+        }
+        if let reset = snapshot.reset {
+            parts.append(resetPhrase(for: reset, now: now))
+        }
+        parts.append(confidenceLabel(snapshot.confidence))
+        return parts.joined(separator: " · ")
     }
 
     private static func setupGuidance(for summary: UsageSummary) -> [DashboardSetupItem] {

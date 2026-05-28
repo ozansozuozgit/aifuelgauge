@@ -89,6 +89,16 @@ final class UsageStatusTests: XCTestCase {
         XCTAssertEqual(summary.menuBarTitle, "Codex Wk 18% left · 3d")
     }
 
+    func testCodexMenuBarNamesSparkModelQuotaWhenItIsPrimary() {
+        let summary = UsageSummary(snapshots: [
+            snapshot(provider: .codex, label: "5h", percent: 0.14, reset: 3600),
+            snapshot(provider: .codex, label: "Spark model · 5h", percent: 0.64, reset: 3600)
+        ])
+
+        XCTAssertEqual(summary.primarySnapshot?.label, "Spark model · 5h")
+        XCTAssertEqual(summary.menuBarTitle, "Codex Spark 36% left · 1h")
+    }
+
     func testMenuBarDisplayModesTradeDetailForSpace() {
         let summary = UsageSummary(snapshots: [
             snapshot(provider: .codex, label: "5h", percent: 0.14, reset: 3600)

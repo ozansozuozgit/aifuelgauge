@@ -366,6 +366,7 @@ public struct UsageSummary: Equatable, Sendable {
     private static func menuLaneLabel(for snapshot: UsageSnapshot) -> String? {
         guard snapshot.provider == .codex else { return nil }
         let label = snapshot.label.lowercased()
+        if label.contains("spark") { return "Spark" }
         if label.contains("5h") || label.contains("session") { return "5h" }
         if label.contains("weekly") || label.contains("week") || label.contains("7d") { return "Wk" }
         return nil

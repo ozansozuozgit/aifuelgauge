@@ -281,6 +281,48 @@ final class DashboardViewModelTests: XCTestCase {
         ])
     }
 
+    func testGuidanceItemsSeparateMostRoomFromTightestLane() {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                label: "5h",
+                used: .percent(18),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3_600),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .openRouter,
+                source: .officialAPI,
+                label: "main",
+                used: .credits(76),
+                limit: .credits(100),
+                reset: .rollingWindow(secondsRemaining: 7_200),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "cursor-account", displayName: "Cursor", plan: "Pro"),
+                label: "Included total",
+                used: .percent(59),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3_600),
+                confidence: .exact,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        XCTAssertEqual(model.guidanceItems, [
+            DashboardGuidanceItem(id: "most-room-codex-5h", title: "Most room", value: "Codex · 5h", detail: "82% left · resets in 1h · Exact", state: .safe),
+            DashboardGuidanceItem(id: "tightest-openRouter-main", title: "Tightest", value: "OpenRouter · main", detail: "24 credits left · resets in 2h · Exact", state: .caution)
+        ])
+    }
+
     func testCodexAccountUsageReadsAsRemainingCapacity() {
         let now = Date(timeIntervalSince1970: 100)
         let model = DashboardViewModel(summary: UsageSummary(snapshots: [
@@ -650,6 +692,8 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(export.primary?.title, "Cursor · Pro · Included total")
         XCTAssertEqual(export.primary?.percent, 0.5)
         XCTAssertEqual(export.primary?.explanation, "Exact from Cursor account usage. Uses the local Cursor auth token; no prompt text is read.")
+        XCTAssertEqual(export.guidance.map(\.title), ["Most room", "Tightest"])
+        XCTAssertEqual(export.guidance.map(\.value), ["Codex · 5h", "Cursor · Pro · Included total"])
         XCTAssertEqual(export.lanes.map(\.title), ["Cursor · Pro · Included total", "Codex · 5h"])
         XCTAssertEqual(export.lanes.map(\.meterLabel), ["50% left", "80% left"])
         XCTAssertEqual(export.lanes.first?.explanation, "Exact from Cursor account usage. Uses the local Cursor auth token; no prompt text is read.")

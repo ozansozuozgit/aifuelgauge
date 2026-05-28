@@ -78,6 +78,8 @@ use right now without running into a limit?
   response, and Cursor from local account state unless you override it.
 - Codex model-specific limits, such as Spark, are explained as separate quotas
   instead of looking like duplicate 5h rows.
+- The dashboard separates the lane with the most room from the tightest lane so
+  the popover answers both "what can I use now?" and "what should I watch?".
 - Cursor spend rows come from the provider response instead of a hardcoded plan
   budget.
 - Background refresh so opening the menu item does not block on large local logs.

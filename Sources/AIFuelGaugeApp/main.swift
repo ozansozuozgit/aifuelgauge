@@ -561,6 +561,9 @@ private struct DashboardView: View {
         VStack(alignment: .leading, spacing: 12) {
             header
             InsightStrip(text: model.insight, state: model.state)
+            if !model.guidanceItems.isEmpty {
+                GuidanceStrip(items: model.guidanceItems)
+            }
             SourceHealthStrip(items: model.sourceHealth)
             if !model.setupGuidance.isEmpty {
                 SetupGuidanceView(items: model.setupGuidance)
@@ -630,6 +633,39 @@ private struct DashboardView: View {
             FooterButton(title: "Quit", systemName: "xmark", action: actions.quit)
         }
         .padding(.top, 1)
+    }
+}
+
+private struct GuidanceStrip: View {
+    let items: [DashboardGuidanceItem]
+
+    var body: some View {
+        HStack(spacing: 7) {
+            ForEach(items) { item in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(color(for: item.state))
+                            .frame(width: 5, height: 5)
+                        Text(item.title)
+                            .font(.system(size: 9, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(item.value)
+                        .font(.system(size: 11, weight: .semibold))
+                        .lineLimit(1)
+                    Text(item.detail)
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundStyle(.secondary.opacity(0.82))
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 8)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.64), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+        }
+        .accessibilityLabel(items.map { "\($0.title): \($0.value), \($0.detail)" }.joined(separator: ", "))
     }
 }
 
