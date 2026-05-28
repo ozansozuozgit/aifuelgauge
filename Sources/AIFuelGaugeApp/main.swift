@@ -110,7 +110,51 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
         editItem.submenu = editMenu
 
+        let dashboardItem = NSMenuItem()
+        mainMenu.addItem(dashboardItem)
+        let dashboardMenu = NSMenu(title: "AI Fuel Gauge")
+        dashboardMenu.addItem(NSMenuItem(title: "Show Dashboard", action: #selector(showDashboard), keyEquivalent: "d"))
+        dashboardMenu.addItem(NSMenuItem(title: "Refresh Usage", action: #selector(refreshUsage), keyEquivalent: "r"))
+        dashboardMenu.addItem(NSMenuItem.separator())
+        dashboardMenu.addItem(NSMenuItem(title: "Open Settings", action: #selector(openSettings), keyEquivalent: ","))
+        dashboardMenu.addItem(NSMenuItem(title: "Open History", action: #selector(openHistory), keyEquivalent: "h"))
+        dashboardMenu.addItem(NSMenuItem.separator())
+        dashboardMenu.addItem(NSMenuItem(title: "Copy Status", action: #selector(copyStatus), keyEquivalent: "s"))
+        dashboardMenu.addItem(NSMenuItem(title: "Copy Diagnostics Report", action: #selector(copyDiagnostics), keyEquivalent: "i"))
+        dashboardItem.submenu = dashboardMenu
+
         NSApp.mainMenu = mainMenu
+    }
+
+    @objc private func showDashboard() {
+        guard let button = statusItem?.button else { return }
+        if !popover.isShown {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
+        popover.contentViewController?.view.window?.makeKey()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func refreshUsage() {
+        controller.refresh()
+    }
+
+    @objc private func openSettings() {
+        settingsWindowController.show()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func openHistory() {
+        historyWindowController.show(dashboard: controller.historyDashboard())
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func copyStatus() {
+        controller.copyStatusSnapshot()
+    }
+
+    @objc private func copyDiagnostics() {
+        controller.copyDiagnostics()
     }
 
     @objc private func togglePopover() {
