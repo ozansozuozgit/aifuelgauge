@@ -50,6 +50,8 @@ use right now without running into a limit?
 - Footer controls for Refresh, Settings, History, Report, and Quit.
 - Settings for editable local plan labels, warning thresholds, and refresh cadence.
 - Per-provider alert profiles so noisy providers can be early, critical-only, or off.
+- Optional OpenAI monthly USD budget turns exact spend into a comparable warning
+  lane without inventing a provider limit.
 - Configurable menu bar display modes: detail, pair, sparkline, compact, or
   minimal.
 - Data controls to reveal or clear the local usage-history file.
@@ -201,7 +203,7 @@ make package
 - OpenRouter values are exact when an API key is saved in Settings.
 - OpenAI organization cost/token values are exact when an Admin key is saved in
   Settings, but they are shown as spend/activity rows instead of fake quota
-  limits.
+  limits unless you set a local monthly USD budget.
 - OpenCode values are estimated from local SQLite token counters. Costs are not
   estimated yet because OpenCode commonly stores `cost: 0` locally.
 - Menu bar display modes control space: Detail shows provider, tightest lane,

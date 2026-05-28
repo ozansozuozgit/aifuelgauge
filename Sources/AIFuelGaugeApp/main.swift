@@ -140,6 +140,7 @@ private enum AppPreferences {
     static let staleWarningsEnabledKey = "staleWarningsEnabled"
     static let refreshIntervalSecondsKey = "refreshIntervalSeconds"
     static let menuBarDisplayModeKey = "menuBarDisplayMode"
+    static let openAIMonthlyBudgetUSDKey = "openAIMonthlyBudgetUSD"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -155,7 +156,8 @@ private enum AppPreferences {
             claudeCodeAlertProfileKey: AlertThresholdProfile.inherit.rawValue,
             staleWarningsEnabledKey: true,
             refreshIntervalSecondsKey: 180,
-            menuBarDisplayModeKey: MenuBarDisplayMode.detailed.rawValue
+            menuBarDisplayModeKey: MenuBarDisplayMode.detailed.rawValue,
+            openAIMonthlyBudgetUSDKey: ""
         ])
     }
 
@@ -203,9 +205,19 @@ private enum AppPreferences {
         return MenuBarDisplayMode(rawValue: rawValue) ?? .detailed
     }
 
+    static func budgetPreferences() -> UsageBudgetPreferences {
+        UsageBudgetPreferences(openAIMonthlyUSD: double(for: openAIMonthlyBudgetUSDKey))
+    }
+
     private static func string(for key: String) -> String? {
         let trimmed = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func double(for key: String) -> Double? {
+        guard let value = string(for: key) else { return nil }
+        let sanitized = value.replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: "")
+        return Double(sanitized)
     }
 }
 
@@ -498,6 +510,8 @@ private final class DashboardController: ObservableObject {
                     warnings.append("OpenAI usage failed")
                 }
             }
+
+            snapshots = UsageBudgetApplier.apply(preferences: AppPreferences.budgetPreferences(), to: snapshots)
 
             let summary = UsageSummary(snapshots: snapshots)
             return (summary, warnings.isEmpty ? nil : warnings.joined(separator: " · "))
@@ -1248,6 +1262,7 @@ private struct SettingsView: View {
     @AppStorage(AppPreferences.staleWarningsEnabledKey) private var staleWarningsEnabled = true
     @AppStorage(AppPreferences.refreshIntervalSecondsKey) private var refreshIntervalSeconds = 180
     @AppStorage(AppPreferences.menuBarDisplayModeKey) private var menuBarDisplayMode = MenuBarDisplayMode.detailed.rawValue
+    @AppStorage(AppPreferences.openAIMonthlyBudgetUSDKey) private var openAIMonthlyBudgetUSD = ""
 
     init() {
         _openRouterKey = State(initialValue: KeychainStore.readOpenRouterKey() ?? "")
@@ -1340,6 +1355,17 @@ private struct SettingsView: View {
                 Text("Alerts fire when usage crosses enabled thresholds. Codex notifications use remaining-capacity language.")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.secondary)
+            }
+
+            SettingsPanel {
+                Text("Budget guardrails")
+                    .font(.system(size: 11, weight: .semibold))
+                EditableTextPlanRow(
+                    provider: "OpenAI",
+                    text: $openAIMonthlyBudgetUSD,
+                    placeholder: "optional USD",
+                    detail: "Turns current-month OpenAI spend into a comparable budget lane. Leave blank to show spend only."
+                )
             }
 
             SettingsPanel {

@@ -697,6 +697,29 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.rows.first?.explanation, "Exact from OpenAI organization usage APIs. Spend and token activity are shown without inventing a hard limit.")
     }
 
+    func testOpenAICostBudgetBecomesComparableWhenUserConfiguresLimit() {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .openAI,
+                source: .officialAPI,
+                label: "Current month costs",
+                used: .usd(75),
+                limit: .usd(100),
+                reset: .rollingWindow(secondsRemaining: 120),
+                confidence: .exact,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        XCTAssertEqual(model.title, "OAI 75% · 2m")
+        XCTAssertEqual(model.statusLabel, "Watch")
+        XCTAssertEqual(model.primaryGauge?.title, "OpenAI · Current month costs")
+        XCTAssertEqual(model.primaryGauge?.value, "75%")
+        XCTAssertEqual(model.primaryGauge?.caption, "$25 left")
+        XCTAssertEqual(model.primaryGauge?.explanation, "Exact from OpenAI organization usage APIs. Spend and token activity are shown without inventing a hard limit.")
+    }
+
     func testViewModelUsesConfiguredMenuBarDisplayMode() {
         let now = Date(timeIntervalSince1970: 100)
         let summary = UsageSummary(snapshots: [
