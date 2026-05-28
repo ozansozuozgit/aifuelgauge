@@ -50,7 +50,8 @@ use right now without running into a limit?
 - Footer controls for Refresh, Settings, History, Report, and Quit.
 - Settings for editable local plan labels, warning thresholds, and refresh cadence.
 - Per-provider alert profiles so noisy providers can be early, critical-only, or off.
-- Configurable menu bar display modes: detail, pair, compact, or minimal.
+- Configurable menu bar display modes: detail, pair, sparkline, compact, or
+  minimal.
 - Data controls to reveal or clear the local usage-history file.
 - Copyable compact status snapshot plus a full diagnostics report for source
   status, history counts, and current refresh warnings without secrets.
@@ -176,6 +177,5 @@ Do not pretend estimates are exact. The app should always distinguish:
 
 ## Next useful build slices
 
-1. Add configurable menu bar sparklines.
-2. Add WidgetKit widgets for the active provider and tightest quota.
-3. Add Homebrew cask and signed/notarized release builds.
+1. Add WidgetKit widgets for the active provider and tightest quota.
+2. Add Homebrew cask and signed/notarized release builds.

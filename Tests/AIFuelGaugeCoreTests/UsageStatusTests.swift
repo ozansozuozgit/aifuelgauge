@@ -96,8 +96,33 @@ final class UsageStatusTests: XCTestCase {
 
         XCTAssertEqual(summary.menuBarTitle(mode: .detailed), "Codex 5h 86% left · 1h")
         XCTAssertEqual(summary.menuBarTitle(mode: .pair), "Codex 5h 86% left")
+        XCTAssertEqual(summary.menuBarTitle(mode: .sparkline), "Codex 5h 86% left")
         XCTAssertEqual(summary.menuBarTitle(mode: .compact), "Codex 5h 86% left")
         XCTAssertEqual(summary.menuBarTitle(mode: .minimal), "86% left")
+    }
+
+    func testSparklineMenuBarModeUsesHistoryForPrimaryLane() {
+        let summary = UsageSummary(snapshots: [
+            snapshot(provider: .cursor, label: "Included total", percent: 0.55, reset: 3600)
+        ])
+        let id = summary.primarySnapshot!.id
+
+        XCTAssertEqual(
+            summary.menuBarTitle(mode: .sparkline, history: [id: [0.1, 0.25, 0.5, 0.75]]),
+            "Cursor 55% ▂▃▅▆"
+        )
+    }
+
+    func testSparklineMenuBarModeShowsCodexHeadroomTrend() {
+        let summary = UsageSummary(snapshots: [
+            snapshot(provider: .codex, label: "5h", percent: 0.75, reset: 3600)
+        ])
+        let id = summary.primarySnapshot!.id
+
+        XCTAssertEqual(
+            summary.menuBarTitle(mode: .sparkline, history: [id: [0.25, 0.5, 0.75]]),
+            "Codex 5h 25% left ▆▅▃"
+        )
     }
 
     func testPairMenuBarModeShowsTwoMostRelevantComparableLanes() {

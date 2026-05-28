@@ -692,6 +692,30 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(pairModel.title, "Cursor 59% · Codex 5h 86% left")
     }
 
+    func testViewModelSparklineMenuBarModeUsesPersistedHistory() {
+        let now = Date(timeIntervalSince1970: 100)
+        let snapshot = UsageSnapshot(
+            provider: .cursor,
+            source: .experimentalWebSession,
+            label: "Included total",
+            used: .percent(50),
+            limit: .percent(100),
+            reset: .rollingWindow(secondsRemaining: 3600),
+            confidence: .exact,
+            updatedAt: now
+        )
+        let summary = UsageSummary(snapshots: [snapshot])
+
+        let model = DashboardViewModel(
+            summary: summary,
+            now: now,
+            history: [snapshot.id: [0.1, 0.25, 0.5]],
+            menuBarDisplayMode: .sparkline
+        )
+
+        XCTAssertEqual(model.title, "Cursor 50% ▂▃▅")
+    }
+
     func testUsageHistoryPrunesMissingRowsAndKeepsRecentSamplesOnly() {
         let now = Date(timeIntervalSince1970: 100)
         var history = UsageHistorySeries(maxSamples: 2)

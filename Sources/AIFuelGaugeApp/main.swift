@@ -1267,11 +1267,12 @@ private struct SettingsView: View {
                 Picker("Display", selection: $menuBarDisplayMode) {
                     Text("Detail").tag(MenuBarDisplayMode.detailed.rawValue)
                     Text("Pair").tag(MenuBarDisplayMode.pair.rawValue)
+                    Text("Spark").tag(MenuBarDisplayMode.sparkline.rawValue)
                     Text("Compact").tag(MenuBarDisplayMode.compact.rawValue)
                     Text("Minimal").tag(MenuBarDisplayMode.minimal.rawValue)
                 }
                 .pickerStyle(.segmented)
-                Text("Detail includes reset time. Pair shows two useful lanes. Compact drops reset. Minimal shows only the tightest percentage.")
+                Text("Detail includes reset time. Pair shows two useful lanes. Spark adds recent trend. Compact drops reset. Minimal shows only the tightest percentage.")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.secondary)
             }

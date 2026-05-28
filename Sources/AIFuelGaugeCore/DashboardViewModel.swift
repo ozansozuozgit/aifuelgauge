@@ -535,7 +535,7 @@ public struct DashboardViewModel: Equatable, Sendable {
         historySamples: [String: [UsageHistorySample]] = [:],
         menuBarDisplayMode: MenuBarDisplayMode = .detailed
     ) {
-        self.title = summary.menuBarTitle(mode: menuBarDisplayMode)
+        self.title = summary.menuBarTitle(mode: menuBarDisplayMode, history: history)
         self.state = summary.overallState
         self.statusLabel = Self.statusLabel(for: summary.overallState)
         self.subtitle = Self.subtitle(for: summary, now: now)

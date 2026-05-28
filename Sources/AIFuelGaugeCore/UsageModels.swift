@@ -49,6 +49,7 @@ public enum UsageSource: String, Codable, Equatable, Hashable, Sendable {
 public enum MenuBarDisplayMode: String, Codable, Equatable, Hashable, CaseIterable, Sendable {
     case detailed
     case pair
+    case sparkline
     case compact
     case minimal
 }
@@ -233,7 +234,7 @@ public struct UsageSummary: Equatable, Sendable {
         menuBarTitle(mode: .detailed)
     }
 
-    public func menuBarTitle(mode: MenuBarDisplayMode) -> String {
+    public func menuBarTitle(mode: MenuBarDisplayMode, history: [String: [Double]] = [:]) -> String {
         guard let primarySnapshot else {
             return "AI usage"
         }
@@ -258,6 +259,12 @@ public struct UsageSummary: Equatable, Sendable {
             return lanes.joined(separator: " · ")
         case .compact:
             return Self.menuBarSegment(for: primarySnapshot, includeReset: false)
+        case .sparkline:
+            let base = Self.menuBarSegment(for: primarySnapshot, includeReset: false)
+            guard let sparkline = Self.menuBarSparkline(for: primarySnapshot, history: history[primarySnapshot.id]) else {
+                return base
+            }
+            return "\(base) \(sparkline)"
         case .minimal:
             let percentage: Int
             let qualifier: String
@@ -288,6 +295,23 @@ public struct UsageSummary: Equatable, Sendable {
         let base = "\(snapshot.provider.shortName)\(lane) \(percentage)%\(qualifier)"
         guard includeReset, let resetTitle = snapshot.reset?.compactTitle else { return base }
         return "\(base) · \(resetTitle)"
+    }
+
+    private static func menuBarSparkline(for snapshot: UsageSnapshot, history: [Double]?) -> String? {
+        guard snapshot.usagePercent != nil else { return nil }
+        let values = (history ?? [])
+            .filter(\.isFinite)
+            .suffix(8)
+            .map { min(max($0, 0), 1) }
+        guard values.count >= 2 else { return nil }
+        let displayValues = prefersRemainingDisplay(snapshot)
+            ? values.map { 1 - $0 }
+            : values
+        let ticks = Array("▁▂▃▄▅▆▇█")
+        return String(displayValues.map { value in
+            let index = min(ticks.count - 1, max(0, Int((value * Double(ticks.count - 1)).rounded())))
+            return ticks[index]
+        })
     }
 
     private static func menuBarUnboundedSegment(for snapshot: UsageSnapshot) -> String {
