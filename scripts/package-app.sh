@@ -5,6 +5,13 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 configuration="${CONFIGURATION:-release}"
 app_name="AI Fuel Gauge"
 bundle_id="com.ozansozuoz.aifuelgauge"
+raw_app_version="${VERSION:-0.1.0}"
+app_version="$(printf '%s' "$raw_app_version" | sed -E 's/^[vV]//' | sed -E 's/^([0-9]+([.][0-9]+){0,2}).*/\1/')"
+if [[ ! "$app_version" =~ ^[0-9]+([.][0-9]+){0,2}$ ]]; then
+  app_version="0.1.0"
+fi
+build_version="$(printf '%s' "$app_version" | tr -cd '0-9' | sed 's/^0*//')"
+build_version="${build_version:-1}"
 dist_dir="$repo_root/dist"
 app_path="$dist_dir/$app_name.app"
 contents="$app_path/Contents"
@@ -42,9 +49,9 @@ cat > "$contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>$app_version</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>$build_version</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>LSUIElement</key>

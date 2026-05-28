@@ -32,6 +32,9 @@ final class PackagingScriptTests: XCTestCase {
         XCTAssertTrue(script.contains("<key>LSUIElement</key>"), "bundle should run as a menu bar accessory")
         XCTAssertTrue(script.contains("<true/>"), "bundle should enable LSUIElement")
         XCTAssertTrue(script.contains("<key>CFBundleIconFile</key>"), "bundle should advertise an app icon")
+        XCTAssertTrue(script.contains("raw_app_version=\"${VERSION:-0.1.0}\""), "package-app.sh should accept the requested release version")
+        XCTAssertTrue(script.contains("s/^[vV]//"), "package-app.sh should normalize tag prefixes for bundle metadata")
+        XCTAssertTrue(script.contains("<string>$app_version</string>"), "bundle version metadata should come from VERSION")
         XCTAssertTrue(script.contains("scripts/build-app-icon.swift"), "package-app.sh should generate the iconset")
         XCTAssertTrue(script.contains("iconutil -c icns"), "package-app.sh should compile an icns file")
         XCTAssertTrue(script.contains("codesign --force --deep --sign -"), "bundle should be ad-hoc signed for local standalone installs")
@@ -61,6 +64,7 @@ final class PackagingScriptTests: XCTestCase {
         let makefile = try String(contentsOf: root.appendingPathComponent("Makefile"))
 
         XCTAssertTrue(script.contains("scripts/package-app.sh"), "release zip should reuse the normal app packaging script")
+        XCTAssertTrue(script.contains("VERSION=\"$version\" \"$repo_root/scripts/package-app.sh\""), "release zip should pass the tag version into the app bundle")
         XCTAssertTrue(script.contains("ditto -c -k --keepParent"), "release zip should preserve the .app bundle structure on macOS")
         XCTAssertTrue(script.contains("shasum -a 256"), "release zip should publish a checksum")
         XCTAssertTrue(script.contains("AI-Fuel-Gauge-latest.zip"), "release zip should publish a stable asset for Homebrew")

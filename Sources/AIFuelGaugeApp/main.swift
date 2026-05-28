@@ -1231,6 +1231,7 @@ private struct SettingsView: View {
     @State private var isTestingCursorUsage = false
     @State private var historyMessage: String = "History stores only lane IDs, timestamps, and percentages."
     @State private var maintenanceMessage: String = "Use Releases for signed zips, or copy the Homebrew command for terminal updates."
+    @State private var isCheckingForUpdates = false
     @State private var detectedCursorPlan: String
     @State private var detectedCursorStatus: String
     @State private var detectedCursorAccount: String
@@ -1444,6 +1445,10 @@ private struct SettingsView: View {
                 Text("App maintenance")
                     .font(.system(size: 11, weight: .semibold))
                 HStack(spacing: 8) {
+                    Button(isCheckingForUpdates ? "Checking" : "Check updates") {
+                        checkForUpdates()
+                    }
+                    .disabled(isCheckingForUpdates)
                     Button("Open releases") {
                         openReleases()
                     }
@@ -1632,6 +1637,26 @@ private struct SettingsView: View {
         maintenanceMessage = "Opened the latest GitHub release."
     }
 
+    private func checkForUpdates() {
+        isCheckingForUpdates = true
+        maintenanceMessage = "Checking GitHub releases..."
+        Task {
+            let result: String
+            do {
+                let update = try await AppUpdateChecker().check(currentVersion: currentAppVersion)
+                result = update.message
+            } catch ConnectorError.badStatus(404) {
+                result = "No GitHub release is published yet."
+            } catch {
+                result = "Could not check releases. Use Open releases or try again later."
+            }
+            await MainActor.run {
+                maintenanceMessage = result
+                isCheckingForUpdates = false
+            }
+        }
+    }
+
     private func copyUpdateCommand() {
         let command = "brew upgrade --cask ai-fuel-gauge || brew install --cask https://raw.githubusercontent.com/ozansozuozgit/aifuelgauge/main/Casks/ai-fuel-gauge.rb"
         NSPasteboard.general.clearContents()
@@ -1648,6 +1673,10 @@ private struct SettingsView: View {
         }
         NSWorkspace.shared.open(appURL.deletingLastPathComponent())
         maintenanceMessage = "Opened ~/Applications. The installed app was not found there."
+    }
+
+    private var currentAppVersion: String? {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
     }
 }
 
