@@ -129,46 +129,61 @@ public struct CursorUsageResponseParser: Sendable {
         )
 
         var snapshots: [UsageSnapshot] = []
-        snapshots.append(contentsOf: snapshot(
-            account: account,
-            label: "Included total",
-            percentUsed: planUsage.totalPercentUsed,
-            reset: reset,
-            updatedAt: generatedAt
-        ))
-        snapshots.append(contentsOf: snapshot(
-            account: account,
-            label: "API usage",
-            percentUsed: planUsage.apiPercentUsed,
-            reset: reset,
-            updatedAt: generatedAt
-        ))
-        snapshots.append(contentsOf: snapshot(
-            account: account,
-            label: "Auto usage",
-            percentUsed: planUsage.autoPercentUsed,
-            reset: reset,
-            updatedAt: generatedAt
-        ))
-        snapshots.append(contentsOf: spendSnapshot(
-            account: account,
-            label: "Included spend",
-            cents: planUsage.includedSpend,
-            reset: reset,
-            updatedAt: generatedAt
-        ))
-        snapshots.append(contentsOf: spendSnapshot(
-            account: account,
-            label: "Bonus spend",
-            cents: planUsage.bonusSpend,
-            reset: reset,
-            updatedAt: generatedAt
-        ))
+        var consumedKeys = Set<String>()
+        for lane in Self.knownPercentLanes {
+            consumedKeys.insert(lane.key)
+            snapshots.append(contentsOf: snapshot(
+                account: account,
+                label: lane.label,
+                percentUsed: planUsage.number(for: lane.key),
+                reset: reset,
+                updatedAt: generatedAt
+            ))
+        }
+        let dynamicPercentKeys = planUsage.numericValues.keys
+            .filter { !consumedKeys.contains($0) && $0.lowercased().hasSuffix("percentused") }
+            .sorted()
+        for key in dynamicPercentKeys {
+            consumedKeys.insert(key)
+            snapshots.append(contentsOf: snapshot(
+                account: account,
+                label: "\(Self.label(from: key, removingSuffix: "PercentUsed")) usage",
+                percentUsed: planUsage.number(for: key),
+                reset: reset,
+                updatedAt: generatedAt
+            ))
+        }
+
+        for lane in Self.knownSpendLanes {
+            consumedKeys.insert(lane.key)
+            snapshots.append(contentsOf: spendSnapshot(
+                account: account,
+                label: lane.label,
+                cents: planUsage.number(for: lane.key),
+                reset: reset,
+                updatedAt: generatedAt
+            ))
+        }
+        let dynamicSpendKeys = planUsage.numericValues.keys
+            .filter { key in
+                let lowercased = key.lowercased()
+                return !consumedKeys.contains(key) && lowercased.hasSuffix("spend") && lowercased != "totalspend"
+            }
+            .sorted()
+        for key in dynamicSpendKeys {
+            snapshots.append(contentsOf: spendSnapshot(
+                account: account,
+                label: "\(Self.label(from: key, removingSuffix: "Spend")) spend",
+                cents: planUsage.number(for: key),
+                reset: reset,
+                updatedAt: generatedAt
+            ))
+        }
         if snapshots.isEmpty {
             snapshots.append(contentsOf: spendSnapshot(
                 account: account,
                 label: "Total spend",
-                cents: planUsage.totalSpend,
+                cents: planUsage.number(for: "totalSpend"),
                 reset: reset,
                 updatedAt: generatedAt
             ))
@@ -228,6 +243,53 @@ public struct CursorUsageResponseParser: Sendable {
         let trimmed = plan?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
     }
+
+    private static let knownPercentLanes: [(key: String, label: String)] = [
+        ("totalPercentUsed", "Included total"),
+        ("apiPercentUsed", "API usage"),
+        ("autoPercentUsed", "Auto usage")
+    ]
+
+    private static let knownSpendLanes: [(key: String, label: String)] = [
+        ("includedSpend", "Included spend"),
+        ("bonusSpend", "Bonus spend")
+    ]
+
+    private static func label(from key: String, removingSuffix suffix: String) -> String {
+        var base = key
+        if base.lowercased().hasSuffix(suffix.lowercased()) {
+            base.removeLast(suffix.count)
+        }
+        let normalized = base
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+        var words: [String] = []
+        var current = ""
+        for character in normalized {
+            if character == " " {
+                if !current.isEmpty {
+                    words.append(current)
+                    current = ""
+                }
+                continue
+            }
+            if character.isUppercase, !current.isEmpty {
+                words.append(current)
+                current = String(character)
+            } else {
+                current.append(character)
+            }
+        }
+        if !current.isEmpty {
+            words.append(current)
+        }
+        let label = words
+            .map { $0.lowercased() }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty else { return "Cursor" }
+        return label.prefix(1).uppercased() + label.dropFirst()
+    }
 }
 
 private extension String {
@@ -242,12 +304,43 @@ private struct CursorUsageResponse: Decodable {
 }
 
 private struct CursorPlanUsage: Decodable {
-    let totalSpend: Double?
-    let includedSpend: Double?
-    let bonusSpend: Double?
-    let autoPercentUsed: Double?
-    let apiPercentUsed: Double?
-    let totalPercentUsed: Double?
+    let numericValues: [String: Double]
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CursorDynamicCodingKey.self)
+        var values: [String: Double] = [:]
+        for key in container.allKeys {
+            if let value = try? container.decode(Double.self, forKey: key), value.isFinite {
+                values[key.stringValue] = value
+                continue
+            }
+            if let string = try? container.decode(String.self, forKey: key),
+               let value = Double(string),
+               value.isFinite {
+                values[key.stringValue] = value
+            }
+        }
+        self.numericValues = values
+    }
+
+    func number(for key: String) -> Double? {
+        numericValues[key]
+    }
+}
+
+private struct CursorDynamicCodingKey: CodingKey {
+    let stringValue: String
+    let intValue: Int?
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+        self.intValue = nil
+    }
+
+    init?(intValue: Int) {
+        self.stringValue = String(intValue)
+        self.intValue = intValue
+    }
 }
 
 private struct CursorFlexibleMilliseconds: Decodable {

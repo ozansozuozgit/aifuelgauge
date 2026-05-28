@@ -93,6 +93,52 @@ final class CursorUsageConnectorTests: XCTestCase {
         XCTAssertEqual(Set(snapshots.compactMap(\.account?.plan)), ["Pro Plus"])
     }
 
+    func testParsesAdditionalCursorProviderLanesWithoutHardcodedNames() throws {
+        let data = Data(
+            """
+            {
+              "billingCycleEnd": "1780785201000",
+              "planUsage": {
+                "totalPercentUsed": 40,
+                "composerPercentUsed": "22.5",
+                "slowRequestsPercentUsed": 12,
+                "teamSpend": "450",
+                "overageSpend": 1234,
+                "ignoredBoolean": true
+              }
+            }
+            """.utf8
+        )
+
+        let snapshots = try CursorUsageResponseParser(now: { Date(timeIntervalSince1970: 200) }).parse(
+            data: data,
+            plan: "pro_plus",
+            accountIdentifier: "cursor-abc123"
+        )
+
+        XCTAssertEqual(snapshots.map(\.label), [
+            "Included total",
+            "Composer usage",
+            "Slow requests usage",
+            "Overage spend",
+            "Team spend"
+        ])
+        XCTAssertEqual(snapshots.map(\.used), [
+            .percent(40),
+            .percent(22.5),
+            .percent(12),
+            .usd(12.34),
+            .usd(4.5)
+        ])
+        XCTAssertEqual(snapshots.map(\.limit), [
+            .percent(100),
+            .percent(100),
+            .percent(100),
+            nil,
+            nil
+        ])
+    }
+
     func testRejectsCursorUsageWithoutAnyComparableLane() {
         let data = Data(
             """

@@ -96,6 +96,8 @@ use right now without running into a limit?
   usage into comparable guardrails without hardcoding subscription plan limits.
 - Cursor spend rows come from the provider response instead of a hardcoded plan
   budget.
+- Cursor usage parsing keeps known lanes readable and also surfaces additional
+  provider-returned percent or spend lanes without hardcoding subscription caps.
 - Background refresh so opening the menu item does not block on large local logs.
 - Local source change polling refreshes sooner when Claude/Codex/Cursor state
   changes between normal sync intervals.
