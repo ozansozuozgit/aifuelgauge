@@ -1290,7 +1290,9 @@ public struct DashboardViewModel: Equatable, Sendable {
             : remainingLabel(for: snapshot) ?? usedLabel(for: snapshot)
         let resolvedResetDate = snapshot.reset.map { resetDate(for: $0, now: now) }
         var parts: [String] = []
-        if seconds >= 24 * 3600, let resolvedResetDate {
+        if snapshot.provider == .cursor {
+            parts.append(seconds <= 60 ? "billing period ready" : "billing period")
+        } else if seconds >= 24 * 3600, let resolvedResetDate {
             parts.append(calendarResetLabel(for: resolvedResetDate))
         } else if seconds <= 60 {
             parts.append("ready now")
