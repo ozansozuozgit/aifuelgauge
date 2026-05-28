@@ -580,6 +580,50 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertFalse(snapshot.localizedCaseInsensitiveContains("sk-"))
     }
 
+    func testStatusExportIsStructuredAndSanitizedForWidgets() throws {
+        let generatedAt = Date(timeIntervalSince1970: 200)
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                label: "5h",
+                used: .percent(20),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3600),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "cursor-account", displayName: "Cursor", plan: "Pro", identityHint: "u***r@example.com"),
+                label: "Included total",
+                used: .percent(50),
+                limit: .percent(100),
+                reset: nil,
+                confidence: .exact,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        let data = try DashboardStatusExport.jsonData(model: model, generatedAt: generatedAt)
+        let export = try JSONDecoder().decode(DashboardStatusExport.self, from: data)
+        let json = String(data: data, encoding: .utf8) ?? ""
+
+        XCTAssertEqual(export.generatedAt, "1970-01-01T00:03:20.000Z")
+        XCTAssertEqual(export.menuTitle, "Cursor 50%")
+        XCTAssertEqual(export.statusLabel, "Safe")
+        XCTAssertEqual(export.primary?.title, "Cursor · Pro · Included total")
+        XCTAssertEqual(export.primary?.percent, 0.5)
+        XCTAssertEqual(export.lanes.map(\.title), ["Cursor · Pro · Included total", "Codex · 5h"])
+        XCTAssertEqual(export.lanes.map(\.meterLabel), ["50% left", "80% left"])
+        XCTAssertTrue(json.contains("\"menuTitle\" : \"Cursor 50%\""))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("sk-"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("accessToken"))
+        XCTAssertFalse(json.contains("user@example.com"))
+    }
+
     func testRowsShowMaskedAccountIdentityWithoutLeakingEmail() {
         let now = Date(timeIntervalSince1970: 100)
         let model = DashboardViewModel(summary: UsageSummary(snapshots: [

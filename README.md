@@ -53,6 +53,8 @@ use right now without running into a limit?
 - Configurable menu bar display modes: detail, pair, sparkline, compact, or
   minimal.
 - Data controls to reveal or clear the local usage-history file.
+- Local `status.json` export for WidgetKit, SketchyBar, Raycast, Übersicht, or
+  other status surfaces that need a simple machine-readable snapshot.
 - Copyable compact status snapshot plus a full diagnostics report for source
   status, history counts, and current refresh warnings without secrets.
 - Paste-friendly macOS Keychain storage for OpenRouter and OpenAI API keys.
@@ -135,6 +137,17 @@ swift run aifuelgauge
 
 The app runs as a menu bar accessory. Use the popover footer to refresh, open settings, or quit.
 
+The app also writes a sanitized status export on refresh:
+
+```text
+~/Library/Application Support/AI Fuel Gauge/status.json
+```
+
+That file is intended for widgets and external status bars. It includes menu
+title, state, primary lane, next resets, visible lanes, setup guidance, and
+trend samples, but not prompts, API keys, auth tokens, or raw provider
+responses.
+
 For local iteration, prefer:
 
 ```bash
@@ -185,5 +198,5 @@ Do not pretend estimates are exact. The app should always distinguish:
 
 ## Next useful build slices
 
-1. Add WidgetKit widgets for the active provider and tightest quota.
+1. Add a native WidgetKit extension that reads the local status export.
 2. Add signed/notarized release builds.

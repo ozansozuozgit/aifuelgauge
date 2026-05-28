@@ -425,6 +425,136 @@ public enum DashboardStatusSnapshot {
     }
 }
 
+public struct DashboardStatusExport: Codable, Equatable, Sendable {
+    public let generatedAt: String
+    public let menuTitle: String
+    public let statusLabel: String
+    public let insight: String
+    public let footerNote: String
+    public let trustDigest: String
+    public let primary: Primary?
+    public let resets: [Reset]
+    public let lanes: [Lane]
+    public let setup: [Setup]
+
+    public init(
+        generatedAt: String,
+        menuTitle: String,
+        statusLabel: String,
+        insight: String,
+        footerNote: String,
+        trustDigest: String,
+        primary: Primary?,
+        resets: [Reset],
+        lanes: [Lane],
+        setup: [Setup]
+    ) {
+        self.generatedAt = generatedAt
+        self.menuTitle = menuTitle
+        self.statusLabel = statusLabel
+        self.insight = insight
+        self.footerNote = footerNote
+        self.trustDigest = trustDigest
+        self.primary = primary
+        self.resets = resets
+        self.lanes = lanes
+        self.setup = setup
+    }
+
+    public static func make(model: DashboardViewModel, generatedAt: Date = Date()) -> DashboardStatusExport {
+        DashboardStatusExport(
+            generatedAt: iso8601(generatedAt),
+            menuTitle: model.title,
+            statusLabel: model.statusLabel,
+            insight: model.insight,
+            footerNote: model.footerNote,
+            trustDigest: model.trustDigest,
+            primary: model.primaryGauge.map { gauge in
+                Primary(
+                    title: gauge.title,
+                    value: gauge.value,
+                    subtitle: gauge.subtitle,
+                    caption: gauge.caption,
+                    percent: gauge.percent,
+                    state: gauge.state.rawValue,
+                    confidence: gauge.confidence.rawValue,
+                    pace: gauge.paceCaption
+                )
+            },
+            resets: model.resetTimeline.map { item in
+                Reset(title: item.title, detail: item.detail, value: item.value, state: item.state.rawValue)
+            },
+            lanes: model.rows.prefix(8).map { row in
+                Lane(
+                    title: row.title,
+                    value: row.value,
+                    detail: row.detail,
+                    meterPercent: row.meterPercent,
+                    meterLabel: row.meterLabel,
+                    trend: row.trendPercents,
+                    trendCaption: row.trendCaption,
+                    pace: row.paceCaption,
+                    confidence: row.confidence.rawValue,
+                    state: row.state.rawValue
+                )
+            },
+            setup: model.setupGuidance.map { item in
+                Setup(title: item.title, status: item.status, action: item.action, state: item.state.rawValue)
+            }
+        )
+    }
+
+    public static func jsonData(model: DashboardViewModel, generatedAt: Date = Date()) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return try encoder.encode(make(model: model, generatedAt: generatedAt))
+    }
+
+    private static func iso8601(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    public struct Primary: Codable, Equatable, Sendable {
+        public let title: String
+        public let value: String
+        public let subtitle: String
+        public let caption: String
+        public let percent: Double
+        public let state: String
+        public let confidence: String
+        public let pace: String?
+    }
+
+    public struct Reset: Codable, Equatable, Sendable {
+        public let title: String
+        public let detail: String
+        public let value: String
+        public let state: String
+    }
+
+    public struct Lane: Codable, Equatable, Sendable {
+        public let title: String
+        public let value: String
+        public let detail: String
+        public let meterPercent: Double?
+        public let meterLabel: String?
+        public let trend: [Double]
+        public let trendCaption: String?
+        public let pace: String?
+        public let confidence: String
+        public let state: String
+    }
+
+    public struct Setup: Codable, Equatable, Sendable {
+        public let title: String
+        public let status: String
+        public let action: String
+        public let state: String
+    }
+}
+
 public struct DashboardRow: Equatable, Identifiable, Sendable {
     public let id: String
     public let title: String

@@ -250,12 +250,18 @@ private enum AlertThresholdProfile: String, CaseIterable, Identifiable {
 }
 
 private enum AppStoragePaths {
-    static var historyURL: URL {
+    private static var appSupportDirectory: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
-        return base
-            .appendingPathComponent("AI Fuel Gauge", isDirectory: true)
-            .appendingPathComponent("usage-history.json")
+        return base.appendingPathComponent("AI Fuel Gauge", isDirectory: true)
+    }
+
+    static var historyURL: URL {
+        appSupportDirectory.appendingPathComponent("usage-history.json")
+    }
+
+    static var statusURL: URL {
+        appSupportDirectory.appendingPathComponent("status.json")
     }
 }
 
@@ -397,6 +403,20 @@ private final class DashboardController: ObservableObject {
             historySamples: history.samplesBySnapshotID,
             menuBarDisplayMode: AppPreferences.menuBarDisplayMode
         )
+        writeStatusExport()
+    }
+
+    private func writeStatusExport() {
+        do {
+            try FileManager.default.createDirectory(at: AppStoragePaths.statusURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let data = try DashboardStatusExport.jsonData(model: model)
+            try data.write(to: AppStoragePaths.statusURL, options: [.atomic])
+        } catch {
+            refreshError = [refreshError, "Status export failed"].compactMap { value in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }.joined(separator: " · ")
+        }
     }
 
     private func deliverAlerts(for current: UsageSummary, previous: UsageSummary?) {
@@ -1393,6 +1413,9 @@ private struct SettingsView: View {
                     Button("Reveal history") {
                         revealHistory()
                     }
+                    Button("Reveal status JSON") {
+                        revealStatusExport()
+                    }
                     Button("Clear history") {
                         clearHistory()
                     }
@@ -1541,6 +1564,22 @@ private struct SettingsView: View {
             historyMessage = "History file has not been created yet. Opened its folder."
         } catch {
             historyMessage = "Could not open history folder: \(error.localizedDescription)"
+        }
+    }
+
+    private func revealStatusExport() {
+        let statusURL = AppStoragePaths.statusURL
+        if FileManager.default.fileExists(atPath: statusURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([statusURL])
+            historyMessage = "Revealed status.json in Finder."
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(at: statusURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            NSWorkspace.shared.open(statusURL.deletingLastPathComponent())
+            historyMessage = "Opened status folder. status.json appears after the next refresh."
+        } catch {
+            historyMessage = "Could not open status folder: \(error.localizedDescription)"
         }
     }
 
