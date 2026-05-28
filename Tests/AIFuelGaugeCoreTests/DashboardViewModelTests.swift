@@ -434,6 +434,33 @@ final class DashboardViewModelTests: XCTestCase {
         ])
     }
 
+    func testSetupGuidanceHonorsDisabledProviders() {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(
+            summary: UsageSummary(snapshots: [
+                UsageSnapshot(
+                    provider: .openRouter,
+                    source: .officialAPI,
+                    label: "main",
+                    used: .credits(90),
+                    limit: .credits(100),
+                    reset: nil,
+                    confidence: .exact,
+                    updatedAt: now
+                )
+            ]),
+            now: now,
+            monitoredProviders: [.codex, .cursor]
+        )
+
+        XCTAssertEqual(model.title, "AI usage")
+        XCTAssertTrue(model.rows.isEmpty)
+        XCTAssertNil(model.primaryGauge)
+        XCTAssertEqual(model.setupGuidance.map(\.title), ["Codex", "Cursor"])
+        XCTAssertFalse(model.setupGuidance.contains { $0.title == "OpenRouter" })
+        XCTAssertFalse(model.setupGuidance.contains { $0.title == "Claude Code" })
+    }
+
     func testSetupGuidanceOnlyShowsActionableFallbacksWhenExactSourcesExist() {
         let now = Date(timeIntervalSince1970: 100)
         let model = DashboardViewModel(summary: UsageSummary(snapshots: [

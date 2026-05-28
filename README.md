@@ -49,6 +49,8 @@ use right now without running into a limit?
   copyable CSV export.
 - Footer controls for Refresh, Settings, History, Report, and Quit.
 - Settings for editable local plan labels, warning thresholds, and refresh cadence.
+- Provider monitoring toggles remove unused sources from polling, alerts,
+  setup prompts, history views, and status export without deleting keys or data.
 - Per-provider alert profiles so noisy providers can be early, critical-only, or off.
 - Optional OpenAI monthly USD budget turns exact spend into a comparable warning
   lane without inventing a provider limit.

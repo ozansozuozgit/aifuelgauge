@@ -734,22 +734,24 @@ public struct DashboardViewModel: Equatable, Sendable {
         now: Date = Date(),
         history: [String: [Double]] = [:],
         historySamples: [String: [UsageHistorySample]] = [:],
+        monitoredProviders: Set<Provider> = Set(Provider.allCases),
         menuBarDisplayMode: MenuBarDisplayMode = .detailed
     ) {
-        self.title = summary.menuBarTitle(mode: menuBarDisplayMode, history: history)
-        self.state = summary.overallState
-        self.statusLabel = Self.statusLabel(for: summary.overallState)
-        self.subtitle = Self.subtitle(for: summary, now: now)
-        self.insight = Self.insight(for: summary, now: now)
-        self.trustDigest = Self.trustDigest(for: summary)
-        self.footerNote = Self.footerNote(for: summary)
-        self.sourceHealth = Self.sourceHealth(for: summary, now: now)
-        self.guidanceItems = Self.guidanceItems(for: summary, now: now)
-        self.setupGuidance = Self.setupGuidance(for: summary)
-        self.resetTimeline = Self.resetTimeline(for: summary, now: now)
-        self.primaryGauge = summary.primarySnapshot.flatMap { Self.gauge(for: $0, historySamples: historySamples, now: now) }
-        let hiddenPrimaryID = summary.primarySnapshot.flatMap { Self.hidesPrimaryRow($0) ? $0.id : nil }
-        self.rows = summary.snapshots
+        let visibleSummary = UsageSummary(snapshots: summary.snapshots.filter { monitoredProviders.contains($0.provider) })
+        self.title = visibleSummary.menuBarTitle(mode: menuBarDisplayMode, history: history)
+        self.state = visibleSummary.overallState
+        self.statusLabel = Self.statusLabel(for: visibleSummary.overallState)
+        self.subtitle = Self.subtitle(for: visibleSummary, now: now)
+        self.insight = Self.insight(for: visibleSummary, now: now)
+        self.trustDigest = Self.trustDigest(for: visibleSummary)
+        self.footerNote = Self.footerNote(for: visibleSummary)
+        self.sourceHealth = Self.sourceHealth(for: visibleSummary, now: now)
+        self.guidanceItems = Self.guidanceItems(for: visibleSummary, now: now)
+        self.setupGuidance = Self.setupGuidance(for: visibleSummary, monitoredProviders: monitoredProviders)
+        self.resetTimeline = Self.resetTimeline(for: visibleSummary, now: now)
+        self.primaryGauge = visibleSummary.primarySnapshot.flatMap { Self.gauge(for: $0, historySamples: historySamples, now: now) }
+        let hiddenPrimaryID = visibleSummary.primarySnapshot.flatMap { Self.hidesPrimaryRow($0) ? $0.id : nil }
+        self.rows = visibleSummary.snapshots
             .filter { $0.id != hiddenPrimaryID }
             .sorted(by: Self.prefersRowOrder)
             .map { snapshot in
@@ -1073,7 +1075,7 @@ public struct DashboardViewModel: Equatable, Sendable {
         }
     }
 
-    private static func setupGuidance(for summary: UsageSummary) -> [DashboardSetupItem] {
+    private static func setupGuidance(for summary: UsageSummary, monitoredProviders: Set<Provider>) -> [DashboardSetupItem] {
         let snapshots = summary.snapshots
         let exactComparableProviders = Set(snapshots.compactMap { snapshot -> Provider? in
             snapshot.usagePercent != nil && snapshot.confidence == .exact ? snapshot.provider : nil
@@ -1082,7 +1084,7 @@ public struct DashboardViewModel: Equatable, Sendable {
         let grouped = Dictionary(grouping: snapshots, by: \.provider)
         var items: [DashboardSetupItem] = []
 
-        if !exactComparableProviders.contains(.codex) {
+        if monitoredProviders.contains(.codex), !exactComparableProviders.contains(.codex) {
             if grouped[.codex]?.isEmpty == false {
                 items.append(DashboardSetupItem(
                     id: "codex-fallback",
@@ -1102,7 +1104,7 @@ public struct DashboardViewModel: Equatable, Sendable {
             }
         }
 
-        if !exactComparableProviders.contains(.cursor) {
+        if monitoredProviders.contains(.cursor), !exactComparableProviders.contains(.cursor) {
             if grouped[.cursor]?.contains(where: { $0.isSubscriptionOnly }) == true {
                 items.append(DashboardSetupItem(
                     id: "cursor-subscription-only",
@@ -1122,7 +1124,7 @@ public struct DashboardViewModel: Equatable, Sendable {
             }
         }
 
-        if !exactComparableProviders.contains(.openRouter), !hasExactComparable {
+        if monitoredProviders.contains(.openRouter), !exactComparableProviders.contains(.openRouter), !hasExactComparable {
             items.append(DashboardSetupItem(
                 id: "openrouter-missing",
                 title: "OpenRouter",
@@ -1132,7 +1134,8 @@ public struct DashboardViewModel: Equatable, Sendable {
             ))
         }
 
-        if let claude = grouped[.claudeCode],
+        if monitoredProviders.contains(.claudeCode),
+           let claude = grouped[.claudeCode],
            !claude.contains(where: { $0.usagePercent != nil }),
            !hasExactComparable {
             items.append(DashboardSetupItem(

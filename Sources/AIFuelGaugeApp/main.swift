@@ -143,6 +143,12 @@ private enum AppPreferences {
     static let openAIMonthlyBudgetUSDKey = "openAIMonthlyBudgetUSD"
     static let cursorMonthlyBudgetUSDKey = "cursorMonthlyBudgetUSD"
     static let openRouterMonthlyBudgetCreditsKey = "openRouterMonthlyBudgetCredits"
+    static let monitorClaudeCodeEnabledKey = "monitorClaudeCodeEnabled"
+    static let monitorCodexEnabledKey = "monitorCodexEnabled"
+    static let monitorCursorEnabledKey = "monitorCursorEnabled"
+    static let monitorOpenCodeEnabledKey = "monitorOpenCodeEnabled"
+    static let monitorOpenRouterEnabledKey = "monitorOpenRouterEnabled"
+    static let monitorOpenAIEnabledKey = "monitorOpenAIEnabled"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -161,7 +167,13 @@ private enum AppPreferences {
             menuBarDisplayModeKey: MenuBarDisplayMode.detailed.rawValue,
             openAIMonthlyBudgetUSDKey: "",
             cursorMonthlyBudgetUSDKey: "",
-            openRouterMonthlyBudgetCreditsKey: ""
+            openRouterMonthlyBudgetCreditsKey: "",
+            monitorClaudeCodeEnabledKey: true,
+            monitorCodexEnabledKey: true,
+            monitorCursorEnabledKey: true,
+            monitorOpenCodeEnabledKey: true,
+            monitorOpenRouterEnabledKey: true,
+            monitorOpenAIEnabledKey: true
         ])
     }
 
@@ -215,6 +227,17 @@ private enum AppPreferences {
             cursorMonthlyUSD: double(for: cursorMonthlyBudgetUSDKey),
             openRouterMonthlyCredits: double(for: openRouterMonthlyBudgetCreditsKey)
         )
+    }
+
+    static var monitoredProviders: Set<Provider> {
+        var providers = Set<Provider>()
+        if UserDefaults.standard.bool(forKey: monitorClaudeCodeEnabledKey) { providers.insert(.claudeCode) }
+        if UserDefaults.standard.bool(forKey: monitorCodexEnabledKey) { providers.insert(.codex) }
+        if UserDefaults.standard.bool(forKey: monitorCursorEnabledKey) { providers.insert(.cursor) }
+        if UserDefaults.standard.bool(forKey: monitorOpenCodeEnabledKey) { providers.insert(.openCode) }
+        if UserDefaults.standard.bool(forKey: monitorOpenRouterEnabledKey) { providers.insert(.openRouter) }
+        if UserDefaults.standard.bool(forKey: monitorOpenAIEnabledKey) { providers.insert(.openAI) }
+        return providers
     }
 
     private static func string(for key: String) -> String? {
@@ -313,6 +336,7 @@ private final class DashboardController: ObservableObject {
             summary: UsageSummary(snapshots: []),
             history: loadedHistory.percentsBySnapshotID,
             historySamples: loadedHistory.samplesBySnapshotID,
+            monitoredProviders: AppPreferences.monitoredProviders,
             menuBarDisplayMode: AppPreferences.menuBarDisplayMode
         )
         startAutoRefresh()
@@ -412,15 +436,28 @@ private final class DashboardController: ObservableObject {
     }
 
     func historyDashboard() -> UsageHistoryDashboard {
-        UsageHistoryDashboard(history: history, summary: summary ?? UsageSummary(snapshots: []))
+        let monitoredProviders = AppPreferences.monitoredProviders
+        let visibleSummary = UsageSummary(snapshots: (summary?.snapshots ?? []).filter { monitoredProviders.contains($0.provider) })
+        let visibleHistory = UsageHistorySeries(
+            maxSamples: history.maxSamples,
+            retention: history.retention,
+            samplesBySnapshotID: history.samplesBySnapshotID.filter { snapshotID, _ in
+                monitoredProviders.contains(where: { provider in
+                    snapshotID == provider.rawValue || snapshotID.hasPrefix("\(provider.rawValue)-")
+                })
+            }
+        )
+        return UsageHistoryDashboard(history: visibleHistory, summary: visibleSummary)
     }
 
     private func rebuildModel() {
-        let currentSummary = summary ?? UsageSummary(snapshots: [])
+        let monitoredProviders = AppPreferences.monitoredProviders
+        let currentSummary = UsageSummary(snapshots: (summary?.snapshots ?? []).filter { monitoredProviders.contains($0.provider) })
         model = DashboardViewModel(
             summary: currentSummary,
             history: history.percentsBySnapshotID,
             historySamples: history.samplesBySnapshotID,
+            monitoredProviders: monitoredProviders,
             menuBarDisplayMode: AppPreferences.menuBarDisplayMode
         )
         writeStatusExport()
@@ -458,40 +495,47 @@ private final class DashboardController: ObservableObject {
 
     private static func loadUsageOffMain() async -> (summary: UsageSummary, error: String?) {
         await Task.detached(priority: .userInitiated) {
+            let monitoredProviders = AppPreferences.monitoredProviders
             var snapshots: [UsageSnapshot] = []
             var warnings: [String] = []
 
             do {
-                snapshots.append(contentsOf: try LocalUsageCollector(planPreferences: AppPreferences.localPlanPreferences()).collect())
+                let localSnapshots = try LocalUsageCollector(planPreferences: AppPreferences.localPlanPreferences()).collect()
+                snapshots.append(contentsOf: localSnapshots.filter { monitoredProviders.contains($0.provider) })
             } catch {
                 warnings.append("Local refresh failed")
             }
 
-            do {
-                let codexSnapshots = try await CodexUsageConnector().fetchUsage()
-                if !codexSnapshots.isEmpty {
-                    snapshots.removeAll { $0.provider == .codex && $0.source == .localLogs }
-                    snapshots.append(contentsOf: codexSnapshots)
-                }
-            } catch {
-                let hasLocalCodexFallback = snapshots.contains { $0.provider == .codex && $0.source == .localLogs }
-                warnings.append(hasLocalCodexFallback ? "Codex account unavailable, using local fallback" : "Codex account unavailable")
-            }
-
-            do {
-                let cursorSnapshots = try await CursorUsageConnector(planPreferences: AppPreferences.localPlanPreferences()).fetchUsage()
-                if !cursorSnapshots.isEmpty {
-                    snapshots.removeAll { $0.provider == .cursor && $0.source == .localLogs }
-                    snapshots.append(contentsOf: cursorSnapshots)
-                }
-            } catch {
-                let hasLocalCursorFallback = snapshots.contains { $0.provider == .cursor && $0.source == .localLogs }
-                if hasLocalCursorFallback {
-                    warnings.append("Cursor usage unavailable, using subscription fallback")
+            if monitoredProviders.contains(.codex) {
+                do {
+                    let codexSnapshots = try await CodexUsageConnector().fetchUsage()
+                    if !codexSnapshots.isEmpty {
+                        snapshots.removeAll { $0.provider == .codex && $0.source == .localLogs }
+                        snapshots.append(contentsOf: codexSnapshots)
+                    }
+                } catch {
+                    let hasLocalCodexFallback = snapshots.contains { $0.provider == .codex && $0.source == .localLogs }
+                    warnings.append(hasLocalCodexFallback ? "Codex account unavailable, using local fallback" : "Codex account unavailable")
                 }
             }
 
-            if let openRouterKey = KeychainStore.readOpenRouterKey(), !openRouterKey.isEmpty {
+            if monitoredProviders.contains(.cursor) {
+                do {
+                    let cursorSnapshots = try await CursorUsageConnector(planPreferences: AppPreferences.localPlanPreferences()).fetchUsage()
+                    if !cursorSnapshots.isEmpty {
+                        snapshots.removeAll { $0.provider == .cursor && $0.source == .localLogs }
+                        snapshots.append(contentsOf: cursorSnapshots)
+                    }
+                } catch {
+                    let hasLocalCursorFallback = snapshots.contains { $0.provider == .cursor && $0.source == .localLogs }
+                    if hasLocalCursorFallback {
+                        warnings.append("Cursor usage unavailable, using subscription fallback")
+                    }
+                }
+            }
+
+            if monitoredProviders.contains(.openRouter),
+               let openRouterKey = KeychainStore.readOpenRouterKey(), !openRouterKey.isEmpty {
                 let connector = OpenRouterConnector()
                 do {
                     snapshots.append(try await connector.fetchCurrentKeyUsage(apiKey: openRouterKey))
@@ -505,7 +549,8 @@ private final class DashboardController: ObservableObject {
                 }
             }
 
-            if let openAIAdminKey = KeychainStore.readOpenAIAdminKey(), !openAIAdminKey.isEmpty {
+            if monitoredProviders.contains(.openAI),
+               let openAIAdminKey = KeychainStore.readOpenAIAdminKey(), !openAIAdminKey.isEmpty {
                 let connector = OpenAIConnector()
                 do {
                     snapshots.append(try await connector.fetchCurrentMonthCosts(adminKey: openAIAdminKey))
@@ -1341,6 +1386,12 @@ private struct SettingsView: View {
     @AppStorage(AppPreferences.openAIMonthlyBudgetUSDKey) private var openAIMonthlyBudgetUSD = ""
     @AppStorage(AppPreferences.cursorMonthlyBudgetUSDKey) private var cursorMonthlyBudgetUSD = ""
     @AppStorage(AppPreferences.openRouterMonthlyBudgetCreditsKey) private var openRouterMonthlyBudgetCredits = ""
+    @AppStorage(AppPreferences.monitorClaudeCodeEnabledKey) private var monitorClaudeCodeEnabled = true
+    @AppStorage(AppPreferences.monitorCodexEnabledKey) private var monitorCodexEnabled = true
+    @AppStorage(AppPreferences.monitorCursorEnabledKey) private var monitorCursorEnabled = true
+    @AppStorage(AppPreferences.monitorOpenCodeEnabledKey) private var monitorOpenCodeEnabled = true
+    @AppStorage(AppPreferences.monitorOpenRouterEnabledKey) private var monitorOpenRouterEnabled = true
+    @AppStorage(AppPreferences.monitorOpenAIEnabledKey) private var monitorOpenAIEnabled = true
 
     init() {
         _openRouterKey = State(initialValue: KeychainStore.readOpenRouterKey() ?? "")
@@ -1389,6 +1440,21 @@ private struct SettingsView: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                     }
+                }
+
+                SettingsPanel {
+                    Text("Monitored providers")
+                        .font(.system(size: 11, weight: .semibold))
+                    ProviderMonitorRow(provider: "Codex", isOn: $monitorCodexEnabled, detail: "Account quota plus local fallback from ~/.codex.")
+                    ProviderMonitorRow(provider: "Cursor", isOn: $monitorCursorEnabled, detail: "Local account state plus live current-period usage.")
+                    ProviderMonitorRow(provider: "Claude Code", isOn: $monitorClaudeCodeEnabled, detail: "Local token estimates from ~/.claude/projects.")
+                    ProviderMonitorRow(provider: "OpenCode", isOn: $monitorOpenCodeEnabled, detail: "Local token estimates from OpenCode SQLite.")
+                    ProviderMonitorRow(provider: "OpenRouter", isOn: $monitorOpenRouterEnabled, detail: "Official key and credit endpoints when a key is saved.")
+                    ProviderMonitorRow(provider: "OpenAI", isOn: $monitorOpenAIEnabled, detail: "Official organization costs and token usage when an admin key is saved.")
+                    Text("Turning a provider off removes it from polling, alerts, history views, setup prompts, and the exported status snapshot.")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
             SettingsPanel {
@@ -1913,6 +1979,30 @@ private struct EditableTextPlanRow: View {
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 10, weight: .medium))
                 .frame(width: 110)
+            Text(detail)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+}
+
+private struct ProviderMonitorRow: View {
+    let provider: String
+    @Binding var isOn: Bool
+    let detail: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Toggle(provider, isOn: $isOn)
+                .font(.system(size: 10, weight: .semibold))
+                .toggleStyle(.checkbox)
+                .frame(width: 132, alignment: .leading)
+            Text(isOn ? "On" : "Off")
+                .font(.system(size: 10, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(isOn ? Color.green : Color.secondary)
+                .frame(width: 28, alignment: .leading)
             Text(detail)
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(.secondary)
