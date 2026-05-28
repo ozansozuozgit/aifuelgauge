@@ -765,11 +765,7 @@ private struct DashboardView: View {
                 .frame(maxHeight: showLaneDetails ? 430 : 390)
                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
-            ContextStrip(
-                guidanceItems: model.guidanceItems,
-                resetItems: model.resetTimeline,
-                healthItems: model.sourceHealth
-            )
+            ResetContextStrip(items: model.resetTimeline)
             if !model.setupGuidance.isEmpty {
                 SetupGuidanceView(items: model.setupGuidance)
             }
@@ -852,67 +848,41 @@ private enum LaneFilter: Hashable {
     case all
 }
 
-private struct ContextStrip: View {
-    let guidanceItems: [DashboardGuidanceItem]
-    let resetItems: [DashboardResetItem]
-    let healthItems: [DashboardSourceHealthItem]
-
-    private var contextItems: [ContextItem] {
-        [guidanceItem, resetItem, healthItem].compactMap { $0 }
-    }
-
-    private var guidanceItem: ContextItem? {
-        let nonObvious = guidanceItems.filter { item in
-            item.title.localizedCaseInsensitiveContains("spike")
-        }
-        let source = nonObvious.first ?? guidanceItems.first
-        guard let source else { return nil }
-        let label = source.title.localizedCaseInsensitiveContains("Most room") ? "Use" : source.title
-        return ContextItem(id: "guidance", label: label, value: source.value)
-    }
-
-    private var resetItem: ContextItem? {
-        guard let reset = resetItems.first else { return nil }
-        return ContextItem(id: "reset", label: "Reset", value: "\(reset.title) in \(reset.value)")
-    }
-
-    private var healthItem: ContextItem? {
-        guard !healthItems.isEmpty else { return nil }
-        let value = healthItems
-            .map { "\($0.value) \($0.title.lowercased())" }
-            .joined(separator: ", ")
-        return ContextItem(id: "health", label: "Sources", value: value)
-    }
+private struct ResetContextStrip: View {
+    let items: [DashboardResetItem]
 
     var body: some View {
-        if !contextItems.isEmpty {
+        if !items.isEmpty {
             HStack(spacing: 7) {
-                ForEach(contextItems.prefix(3)) { item in
+                ForEach(Array(items.prefix(3).enumerated()), id: \.element.id) { index, item in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(item.label)
+                        Text(index == 0 ? "Next reset" : "Reset")
                             .font(.system(size: 8, weight: .semibold, design: .rounded))
                             .foregroundStyle(.secondary.opacity(0.72))
                             .textCase(.uppercase)
                         Text(item.value)
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .foregroundStyle(color(for: item.state))
+                        Text(item.title)
                             .font(.system(size: 9, weight: .semibold))
                             .lineLimit(1)
-                            .foregroundStyle(.secondary.opacity(0.90))
+                            .foregroundStyle(.primary.opacity(0.80))
+                        Text(item.detail)
+                            .font(.system(size: 8, weight: .medium))
+                            .lineLimit(1)
+                            .foregroundStyle(.secondary.opacity(0.82))
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, 7)
                     .background(Color(nsColor: .controlBackgroundColor).opacity(0.38), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 }
             }
-            .accessibilityLabel(contextItems.map { "\($0.label): \($0.value)" }.joined(separator: ", "))
+            .accessibilityLabel(items.map { "\($0.title) resets in \($0.value)" }.joined(separator: ", "))
         }
     }
-}
-
-private struct ContextItem: Identifiable {
-    let id: String
-    let label: String
-    let value: String
 }
 
 private struct SetupGuidanceView: View {
