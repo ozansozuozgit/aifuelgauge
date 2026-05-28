@@ -24,7 +24,17 @@ final class LocalUsageCollectorTests: XCTestCase {
         try """
         {"timestamp":"2026-05-26T12:10:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":66.0,"window_minutes":300,"resets_at":2600}}}}
         """.write(to: codexDir.appendingPathComponent("rollout.jsonl"), atomically: true, encoding: .utf8)
-        FileManager.default.createFile(atPath: opencodeDir.appendingPathComponent("opencode.db").path, contents: Data())
+        try LocalAgentUsageTests.createOpenCodeDatabase(
+            at: opencodeDir.appendingPathComponent("opencode.db"),
+            rows: [
+                LocalAgentUsageTests.OpenCodeMessageRow(
+                    id: "msg_1",
+                    sessionID: "ses_1",
+                    updatedAt: 1_762_000_000_000,
+                    data: #"{"role":"assistant","tokens":{"input":11,"output":7,"cache":{"read":13,"write":17},"total":48},"cost":0}"#
+                )
+            ]
+        )
 
         let collector = LocalUsageCollector(
             homeDirectory: home,
@@ -37,7 +47,9 @@ final class LocalUsageCollectorTests: XCTestCase {
         XCTAssertEqual(snapshots[0].used, .tokens(input: 10, output: 3, cacheRead: 4, cacheWrite: 5))
         XCTAssertEqual(snapshots[0].account?.plan, "Free")
         XCTAssertEqual(snapshots[1].used, .percent(66))
-        XCTAssertEqual(snapshots[2].confidence, .unknown)
+        XCTAssertEqual(snapshots[2].label, "OpenCode tokens")
+        XCTAssertEqual(snapshots[2].used, .tokens(input: 11, output: 7, cacheRead: 13, cacheWrite: 17))
+        XCTAssertEqual(snapshots[2].confidence, .estimated)
         XCTAssertEqual(snapshots[3].label, "Subscription active")
         XCTAssertEqual(snapshots[3].account?.plan, "Pro")
         XCTAssertTrue(snapshots[3].isSubscriptionOnly)

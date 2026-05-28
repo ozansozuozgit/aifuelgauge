@@ -286,6 +286,70 @@ public struct CodexJSONLUsageParser {
     }
 }
 
+public struct OpenCodeSQLiteUsageParser {
+    private let now: () -> Date
+
+    public init(now: @escaping () -> Date = Date.init) {
+        self.now = now
+    }
+
+    public func parse(databaseURL: URL, label: String = "OpenCode tokens") throws -> UsageSnapshot {
+        var database: OpaquePointer?
+        guard sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            throw LocalUsageParseError.noUsageFound
+        }
+        defer { sqlite3_close(database) }
+
+        let query = """
+        SELECT
+          COUNT(*),
+          COALESCE(SUM(json_extract(data, '$.tokens.input')), 0),
+          COALESCE(SUM(json_extract(data, '$.tokens.output')), 0),
+          COALESCE(SUM(json_extract(data, '$.tokens.cache.read')), 0),
+          COALESCE(SUM(json_extract(data, '$.tokens.cache.write')), 0),
+          COALESCE(MAX(time_updated), 0)
+        FROM message
+        WHERE json_type(data, '$.tokens') IS NOT NULL;
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, query, -1, &statement, nil) == SQLITE_OK else {
+            throw LocalUsageParseError.noUsageFound
+        }
+        defer { sqlite3_finalize(statement) }
+
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw LocalUsageParseError.noUsageFound
+        }
+        let rowCount = sqlite3_column_int64(statement, 0)
+        guard rowCount > 0 else { throw LocalUsageParseError.noUsageFound }
+
+        let input = Int(sqlite3_column_int64(statement, 1))
+        let output = Int(sqlite3_column_int64(statement, 2))
+        let cacheRead = Int(sqlite3_column_int64(statement, 3))
+        let cacheWrite = Int(sqlite3_column_int64(statement, 4))
+        let updatedAt = date(fromOpenCodeTimestamp: sqlite3_column_int64(statement, 5))
+
+        return UsageSnapshot(
+            provider: .openCode,
+            source: .localLogs,
+            label: label,
+            used: .tokens(input: input, output: output, cacheRead: cacheRead, cacheWrite: cacheWrite),
+            limit: nil,
+            reset: nil,
+            confidence: .estimated,
+            updatedAt: updatedAt
+        )
+    }
+
+    private func date(fromOpenCodeTimestamp timestamp: Int64) -> Date {
+        guard timestamp > 0 else { return now() }
+        if timestamp > 10_000_000_000 {
+            return Date(timeIntervalSince1970: TimeInterval(timestamp) / 1_000)
+        }
+        return Date(timeIntervalSince1970: TimeInterval(timestamp))
+    }
+}
+
 public struct LocalUsageCollector {
     private let homeDirectory: URL
     private let fileManager: FileManager
@@ -322,16 +386,20 @@ public struct LocalUsageCollector {
                     snapshots.append(contentsOf: codexSnapshots)
                 }
             case .openCode:
-                snapshots.append(UsageSnapshot(
-                    provider: .openCode,
-                    source: .localLogs,
-                    label: "OpenCode",
-                    used: .tokens(input: 0, output: 0, cacheRead: 0, cacheWrite: 0),
-                    limit: nil,
-                    reset: nil,
-                    confidence: .unknown,
-                    updatedAt: now()
-                ))
+                if let snapshot = try? OpenCodeSQLiteUsageParser(now: now).parse(databaseURL: source.url) {
+                    snapshots.append(snapshot)
+                } else {
+                    snapshots.append(UsageSnapshot(
+                        provider: .openCode,
+                        source: .localLogs,
+                        label: "OpenCode",
+                        used: .tokens(input: 0, output: 0, cacheRead: 0, cacheWrite: 0),
+                        limit: nil,
+                        reset: nil,
+                        confidence: .unknown,
+                        updatedAt: now()
+                    ))
+                }
             case .cursor:
                 let cursorState = CursorAccountStateReader(cursorDirectory: source.url, fileManager: fileManager).read()
                 let plan = planPreferences.cursorPlanOverride ?? cursorState?.displayPlan

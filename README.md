@@ -26,7 +26,8 @@ use right now without running into a limit?
 - Local coding-agent scaffolding:
   - Claude Code JSONL token aggregation from `~/.claude/projects`
   - Codex JSONL rate-limit parsing from `~/.codex/sessions` as fallback
-  - OpenCode local database detection at `~/.local/share/opencode/opencode.db`
+  - OpenCode SQLite token aggregation from
+    `~/.local/share/opencode/opencode.db`
   - Cursor app detection at `~/Library/Application Support/Cursor`
   - Cursor plan/status/auth parsing from `User/globalStorage/state.vscdb`
 - Compact dashboard view model and threshold logic.
@@ -160,6 +161,8 @@ make package
 - OpenAI organization cost/token values are exact when an Admin key is saved in
   Settings, but they are shown as spend/activity rows instead of fake quota
   limits.
+- OpenCode values are estimated from local SQLite token counters. Costs are not
+  estimated yet because OpenCode commonly stores `cost: 0` locally.
 - Menu bar display modes control space: Detail shows provider, tightest lane,
   percentage, and reset; Compact drops reset; Minimal shows only percentage.
 
@@ -173,7 +176,6 @@ Do not pretend estimates are exact. The app should always distinguish:
 
 ## Next useful build slices
 
-1. Replace OpenCode placeholder with SQLite-backed usage parsing.
-2. Add configurable menu bar sparklines.
-3. Add WidgetKit widgets for the active provider and tightest quota.
-4. Add Homebrew cask and signed/notarized release builds.
+1. Add configurable menu bar sparklines.
+2. Add WidgetKit widgets for the active provider and tightest quota.
+3. Add Homebrew cask and signed/notarized release builds.

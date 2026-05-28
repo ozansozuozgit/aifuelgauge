@@ -87,6 +87,38 @@ final class LocalAgentUsageTests: XCTestCase {
         XCTAssertEqual(state.accessToken, "local-access-token")
     }
 
+    func testParsesOpenCodeSQLiteTokenTotalsWithoutReadingMessages() throws {
+        let dbURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("opencode.db")
+        try FileManager.default.createDirectory(at: dbURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Self.createOpenCodeDatabase(at: dbURL, rows: [
+            OpenCodeMessageRow(
+                id: "msg_1",
+                sessionID: "ses_1",
+                updatedAt: 1_762_000_000_000,
+                data: #"{"role":"assistant","tokens":{"input":100,"output":25,"cache":{"read":200,"write":5},"total":330},"cost":0}"#
+            ),
+            OpenCodeMessageRow(
+                id: "msg_2",
+                sessionID: "ses_1",
+                updatedAt: 1_762_000_060_000,
+                data: #"{"role":"assistant","tokens":{"input":10,"output":5,"cache":{"read":20,"write":1},"total":36},"cost":0}"#
+            )
+        ])
+
+        let snapshot = try OpenCodeSQLiteUsageParser(now: { Date(timeIntervalSince1970: 100) }).parse(databaseURL: dbURL)
+
+        XCTAssertEqual(snapshot.provider, .openCode)
+        XCTAssertEqual(snapshot.source, .localLogs)
+        XCTAssertEqual(snapshot.label, "OpenCode tokens")
+        XCTAssertEqual(snapshot.used, .tokens(input: 110, output: 30, cacheRead: 220, cacheWrite: 6))
+        XCTAssertNil(snapshot.limit)
+        XCTAssertNil(snapshot.usagePercent)
+        XCTAssertEqual(snapshot.confidence, .estimated)
+        XCTAssertEqual(snapshot.updatedAt, Date(timeIntervalSince1970: 1_762_000_060))
+    }
+
     func testParsesLatestCodexRateLimitTokenCount() throws {
         let lines = [
             """
@@ -171,6 +203,41 @@ final class LocalAgentUsageTests: XCTestCase {
             sqlite3_clear_bindings(statement)
             sqlite3_bind_text(statement, 1, key, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
             sqlite3_bind_text(statement, 2, value, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            XCTAssertEqual(sqlite3_step(statement), SQLITE_DONE)
+        }
+    }
+
+    struct OpenCodeMessageRow {
+        let id: String
+        let sessionID: String
+        let updatedAt: Int64
+        let data: String
+    }
+
+    static func createOpenCodeDatabase(at url: URL, rows: [OpenCodeMessageRow]) throws {
+        var database: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(url.path, &database), SQLITE_OK)
+        defer { sqlite3_close(database) }
+        XCTAssertEqual(sqlite3_exec(database, """
+        CREATE TABLE message (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          time_created INTEGER NOT NULL,
+          time_updated INTEGER NOT NULL,
+          data TEXT NOT NULL
+        );
+        """, nil, nil, nil), SQLITE_OK)
+        var statement: OpaquePointer?
+        XCTAssertEqual(sqlite3_prepare_v2(database, "INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?);", -1, &statement, nil), SQLITE_OK)
+        defer { sqlite3_finalize(statement) }
+        for row in rows {
+            sqlite3_reset(statement)
+            sqlite3_clear_bindings(statement)
+            sqlite3_bind_text(statement, 1, row.id, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(statement, 2, row.sessionID, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_int64(statement, 3, row.updatedAt)
+            sqlite3_bind_int64(statement, 4, row.updatedAt)
+            sqlite3_bind_text(statement, 5, row.data, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
             XCTAssertEqual(sqlite3_step(statement), SQLITE_DONE)
         }
     }
