@@ -51,6 +51,7 @@ public enum UsageBudgetApplier {
             limit: .usd(budget),
             reset: snapshot.reset,
             confidence: snapshot.confidence,
+            providerNote: snapshot.providerNote,
             updatedAt: snapshot.updatedAt
         )
     }
@@ -72,6 +73,7 @@ public enum UsageBudgetApplier {
             limit: .usd(budget),
             reset: snapshot.reset,
             confidence: snapshot.confidence,
+            providerNote: snapshot.providerNote,
             updatedAt: snapshot.updatedAt
         )
     }
@@ -92,6 +94,7 @@ public enum UsageBudgetApplier {
             limit: .credits(budget),
             reset: snapshot.reset,
             confidence: snapshot.confidence,
+            providerNote: snapshot.providerNote,
             updatedAt: snapshot.updatedAt
         )
     }

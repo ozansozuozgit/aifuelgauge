@@ -100,6 +100,8 @@ use right now without running into a limit?
   budget.
 - Cursor usage parsing keeps known lanes readable and also surfaces additional
   provider-returned percent or spend lanes without hardcoding subscription caps.
+- Cursor provider notes, such as bonus-usage explanations returned by the
+  account endpoint, are preserved on lane explanations and receipts.
 - Background refresh so opening the menu item does not block on large local logs.
 - Local source change polling refreshes sooner when Claude/Codex/Cursor state
   changes between normal sync intervals.

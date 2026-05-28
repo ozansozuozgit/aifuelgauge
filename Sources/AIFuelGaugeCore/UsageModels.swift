@@ -186,6 +186,7 @@ public struct UsageSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
     public let limit: UsageQuantity?
     public let reset: ResetInfo?
     public let confidence: Confidence
+    public let providerNote: String?
     public let updatedAt: Date
 
     public init(
@@ -197,6 +198,7 @@ public struct UsageSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
         limit: UsageQuantity?,
         reset: ResetInfo?,
         confidence: Confidence,
+        providerNote: String? = nil,
         updatedAt: Date
     ) {
         self.provider = provider
@@ -207,6 +209,8 @@ public struct UsageSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
         self.limit = limit
         self.reset = reset
         self.confidence = confidence
+        let trimmedProviderNote = providerNote?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.providerNote = trimmedProviderNote.isEmpty ? nil : trimmedProviderNote
         self.updatedAt = updatedAt
     }
 

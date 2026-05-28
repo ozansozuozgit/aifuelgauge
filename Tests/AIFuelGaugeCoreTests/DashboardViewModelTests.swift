@@ -813,6 +813,7 @@ final class DashboardViewModelTests: XCTestCase {
                 limit: nil,
                 reset: .rollingWindow(secondsRemaining: 3600),
                 confidence: .exact,
+                providerNote: "Bonus usage can vary by provider capacity.",
                 updatedAt: now
             )
         ]), now: now)
@@ -822,6 +823,11 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.rows.first?.value, "$70")
         XCTAssertEqual(model.rows.first?.meterPercent, nil)
         XCTAssertEqual(model.rows.first?.detail, "resets in 1h · Exact · account · now")
+        XCTAssertEqual(
+            model.rows.first?.explanation,
+            "Exact from Cursor account usage. Uses the local Cursor auth token; no prompt text is read. Provider note: Bonus usage can vary by provider capacity."
+        )
+        XCTAssertTrue(model.rows.first?.receiptText.contains("Provider note: Bonus usage can vary by provider capacity.") == true)
     }
 
     func testOpenAICostRowsStayExactWithoutPretendingQuotaCapacity() {

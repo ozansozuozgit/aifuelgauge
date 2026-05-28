@@ -16,6 +16,7 @@ final class CursorUsageConnectorTests: XCTestCase {
                 "remainingBonus": false,
                 "autoPercentUsed": 46.20666666666667,
                 "apiPercentUsed": 100,
+                "bonusTooltip": "Bonus usage can vary by provider capacity.",
                 "totalPercentUsed": 59.112820512820505
               }
             }
@@ -47,6 +48,7 @@ final class CursorUsageConnectorTests: XCTestCase {
         ])
         XCTAssertEqual(snapshots.map(\.limit), [.percent(100), .percent(100), .percent(100), nil, nil])
         XCTAssertEqual(snapshots.map(\.confidence), [.exact, .exact, .exact, .exact, .exact])
+        XCTAssertEqual(snapshots[4].providerNote, "Bonus usage can vary by provider capacity.")
         XCTAssertEqual(snapshots.map(\.updatedAt), [
             Date(timeIntervalSince1970: 200),
             Date(timeIntervalSince1970: 200),

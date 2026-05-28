@@ -58,6 +58,7 @@ final class UsageBudgetingTests: XCTestCase {
                 limit: nil,
                 reset: nil,
                 confidence: .exact,
+                providerNote: "Provider explanation survives local budgets.",
                 updatedAt: now
             ),
             UsageSnapshot(
@@ -79,6 +80,7 @@ final class UsageBudgetingTests: XCTestCase {
 
         XCTAssertEqual(budgeted[0].limit, .usd(20))
         XCTAssertEqual(budgeted[0].usagePercent, 0.625)
+        XCTAssertEqual(budgeted[0].providerNote, "Provider explanation survives local budgets.")
         XCTAssertEqual(budgeted[1].limit, .percent(100))
     }
 

@@ -160,6 +160,7 @@ public struct CursorUsageResponseParser: Sendable {
                 account: account,
                 label: lane.label,
                 cents: planUsage.number(for: lane.key),
+                providerNote: planUsage.tooltip(forSpendKey: lane.key),
                 reset: reset,
                 updatedAt: generatedAt
             ))
@@ -175,6 +176,7 @@ public struct CursorUsageResponseParser: Sendable {
                 account: account,
                 label: "\(Self.label(from: key, removingSuffix: "Spend")) spend",
                 cents: planUsage.number(for: key),
+                providerNote: planUsage.tooltip(forSpendKey: key),
                 reset: reset,
                 updatedAt: generatedAt
             ))
@@ -184,6 +186,7 @@ public struct CursorUsageResponseParser: Sendable {
                 account: account,
                 label: "Total spend",
                 cents: planUsage.number(for: "totalSpend"),
+                providerNote: planUsage.tooltip(forSpendKey: "totalSpend"),
                 reset: reset,
                 updatedAt: generatedAt
             ))
@@ -220,6 +223,7 @@ public struct CursorUsageResponseParser: Sendable {
         account: UsageAccount,
         label: String,
         cents: Double?,
+        providerNote: String? = nil,
         reset: ResetInfo?,
         updatedAt: Date
     ) -> [UsageSnapshot] {
@@ -234,6 +238,7 @@ public struct CursorUsageResponseParser: Sendable {
                 limit: nil,
                 reset: reset,
                 confidence: .exact,
+                providerNote: providerNote,
                 updatedAt: updatedAt
             )
         ]
@@ -305,26 +310,40 @@ private struct CursorUsageResponse: Decodable {
 
 private struct CursorPlanUsage: Decodable {
     let numericValues: [String: Double]
+    let stringValues: [String: String]
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CursorDynamicCodingKey.self)
         var values: [String: Double] = [:]
+        var strings: [String: String] = [:]
         for key in container.allKeys {
             if let value = try? container.decode(Double.self, forKey: key), value.isFinite {
                 values[key.stringValue] = value
                 continue
             }
-            if let string = try? container.decode(String.self, forKey: key),
-               let value = Double(string),
-               value.isFinite {
-                values[key.stringValue] = value
+            if let string = try? container.decode(String.self, forKey: key) {
+                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let value = Double(trimmed), value.isFinite {
+                    values[key.stringValue] = value
+                } else if !trimmed.isEmpty {
+                    strings[key.stringValue] = trimmed
+                }
             }
         }
         self.numericValues = values
+        self.stringValues = strings
     }
 
     func number(for key: String) -> Double? {
         numericValues[key]
+    }
+
+    func tooltip(forSpendKey key: String) -> String? {
+        guard key.lowercased().hasSuffix("spend") else { return nil }
+        var base = key
+        base.removeLast("Spend".count)
+        let tooltipKey = "\(base)Tooltip"
+        return stringValues[tooltipKey]?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     }
 }
 

@@ -1316,6 +1316,13 @@ public struct DashboardViewModel: Equatable, Sendable {
     }
 
     private static func explanation(for snapshot: UsageSnapshot) -> String {
+        func withProviderNote(_ base: String) -> String {
+            guard let note = snapshot.providerNote?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty else {
+                return base
+            }
+            return "\(base) Provider note: \(note)"
+        }
+
         if snapshot.isSubscriptionOnly {
             switch snapshot.provider {
             case .cursor:
@@ -1328,18 +1335,18 @@ public struct DashboardViewModel: Equatable, Sendable {
         }
         switch (snapshot.provider, snapshot.source, snapshot.confidence) {
         case (.openAI, .officialAPI, .exact):
-            return "Exact from OpenAI organization usage APIs. Spend and token activity are shown without inventing a hard limit."
+            return withProviderNote("Exact from OpenAI organization usage APIs. Spend and token activity are shown without inventing a hard limit.")
         case (.openRouter, .officialAPI, .exact):
-            return "Exact from official OpenRouter API. Shows comparable credits with remaining capacity and refresh freshness."
+            return withProviderNote("Exact from official OpenRouter API. Shows comparable credits with remaining capacity and refresh freshness.")
         case (.codex, .experimentalWebSession, .exact):
             if snapshot.label.localizedCaseInsensitiveContains("spark") {
-                return "Exact from Codex account usage. Spark is a model-specific quota reported separately from the general 5h window."
+                return withProviderNote("Exact from Codex account usage. Spark is a model-specific quota reported separately from the general 5h window.")
             }
-            return "Exact from Codex account usage. The 5h window is the active session limit; Weekly is the longer reserve."
+            return withProviderNote("Exact from Codex account usage. The 5h window is the active session limit; Weekly is the longer reserve.")
         case (.cursor, .experimentalWebSession, .exact):
-            return "Exact from Cursor account usage. Uses the local Cursor auth token; no prompt text is read."
+            return withProviderNote("Exact from Cursor account usage. Uses the local Cursor auth token; no prompt text is read.")
         case (.codex, .localLogs, .exact):
-            return "Fallback from local Codex session metadata. Useful when the account endpoint is unavailable, but it can lag behind Codex."
+            return withProviderNote("Fallback from local Codex session metadata. Useful when the account endpoint is unavailable, but it can lag behind Codex.")
         case (.codex, .localLogs, .unknown):
             let lastSeen = lastSeenPercent(for: snapshot).map { "Last seen \($0)% used before reset. " } ?? ""
             return "\(lastSeen)Waiting for Codex to emit a fresh \(snapshot.label) quota event; not showing expired data as current."
@@ -1348,13 +1355,13 @@ public struct DashboardViewModel: Equatable, Sendable {
         case (.openCode, .localLogs, .unknown):
             return "Detected OpenCode locally, but usage parsing is not wired yet. Treat this lane as setup needed."
         case (_, .officialAPI, .exact):
-            return "Exact from the provider API. Shows comparable quota data and refresh freshness."
+            return withProviderNote("Exact from the provider API. Shows comparable quota data and refresh freshness.")
         case (_, .localLogs, .estimated):
-            return "Estimated from local usage metadata. Good for trend awareness, not a hard provider limit."
+            return withProviderNote("Estimated from local usage metadata. Good for trend awareness, not a hard provider limit.")
         case (_, .localLogs, .exact):
-            return "Exact from local rate-limit metadata exposed by the tool. No prompt text is stored."
+            return withProviderNote("Exact from local rate-limit metadata exposed by the tool. No prompt text is stored.")
         default:
-            return "Source is detected, but the app cannot yet prove a comparable limit."
+            return withProviderNote("Source is detected, but the app cannot yet prove a comparable limit.")
         }
     }
 
