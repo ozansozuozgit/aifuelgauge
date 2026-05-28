@@ -62,32 +62,78 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateStatusItem(with model: DashboardViewModel) {
         guard let button = statusItem?.button else { return }
-        button.title = model.title
-        button.image = NSImage(systemSymbolName: statusSymbolName(for: model.state), accessibilityDescription: model.statusLabel)
-        button.image?.isTemplate = false
-        button.imagePosition = .imageLeading
-        button.contentTintColor = statusTintColor(for: model.state)
+        button.title = ""
+        button.attributedTitle = NSAttributedString(string: "")
+        button.image = statusItemImage(title: model.title, state: model.state, accessibilityLabel: model.statusLabel)
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleNone
+        button.contentTintColor = nil
         button.toolTip = "\(model.statusLabel) · \(model.insight)"
+        button.setAccessibilityLabel("AI Fuel Gauge: \(model.title). \(model.statusLabel).")
     }
 
-    private func statusSymbolName(for state: UsageState) -> String {
-        switch state {
-        case .safe: return "checkmark.circle.fill"
-        case .caution: return "gauge.medium"
-        case .critical: return "exclamationmark.triangle.fill"
-        case .exhausted: return "xmark.octagon.fill"
-        case .unknown: return "questionmark.circle.fill"
-        }
+    private func statusItemImage(title: String, state: UsageState, accessibilityLabel: String) -> NSImage {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 14, weight: .medium)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.black
+        ]
+        let text = title as NSString
+        let textSize = text.size(withAttributes: attributes)
+        let iconSize = NSSize(width: 15, height: 15)
+        let spacing: CGFloat = 5
+        let horizontalPadding: CGFloat = 2
+        let height: CGFloat = 22
+        let width = ceil(horizontalPadding * 2 + iconSize.width + spacing + textSize.width)
+        let image = NSImage(size: NSSize(width: width, height: height))
+
+        image.lockFocus()
+        defer { image.unlockFocus() }
+
+        NSColor.black.set()
+        let iconRect = NSRect(
+            x: horizontalPadding,
+            y: floor((height - iconSize.height) / 2),
+            width: iconSize.width,
+            height: iconSize.height
+        )
+        statusSymbolImage(for: state, accessibilityLabel: accessibilityLabel)?.draw(in: iconRect)
+        text.draw(
+            at: NSPoint(
+                x: horizontalPadding + iconSize.width + spacing,
+                y: floor((height - textSize.height) / 2)
+            ),
+            withAttributes: attributes
+        )
+
+        image.isTemplate = true
+        image.accessibilityDescription = "AI Fuel Gauge \(title)"
+        return image
     }
 
-    private func statusTintColor(for state: UsageState) -> NSColor {
+    private func statusSymbolImage(for state: UsageState, accessibilityLabel: String) -> NSImage? {
+        let configuration = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        let candidates: [String]
         switch state {
-        case .safe: return NSColor.systemGreen
-        case .caution: return NSColor.systemYellow
-        case .critical: return NSColor.systemOrange
-        case .exhausted: return NSColor.systemRed
-        case .unknown: return NSColor.systemGray
+        case .safe:
+            candidates = ["gauge.with.dots.needle.33percent", "gauge.low", "checkmark.circle.fill"]
+        case .caution:
+            candidates = ["gauge.with.dots.needle.50percent", "gauge.medium", "speedometer"]
+        case .critical:
+            candidates = ["gauge.with.dots.needle.67percent", "gauge.high", "exclamationmark.triangle.fill"]
+        case .exhausted:
+            candidates = ["gauge.with.dots.needle.100percent", "xmark.octagon.fill"]
+        case .unknown:
+            candidates = ["gauge.with.dots.needle.0percent", "questionmark.circle.fill"]
         }
+        for name in candidates {
+            if let image = NSImage(systemSymbolName: name, accessibilityDescription: accessibilityLabel)?
+                .withSymbolConfiguration(configuration) {
+                image.isTemplate = true
+                return image
+            }
+        }
+        return nil
     }
 
     private func installMainMenu() {
