@@ -510,6 +510,7 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
                     title: row.title,
                     value: row.value,
                     detail: row.detail,
+                    dashboardURL: row.dashboardURL,
                     meterPercent: row.meterPercent,
                     meterLabel: row.meterLabel,
                     trend: row.trendPercents,
@@ -569,6 +570,7 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
         public let title: String
         public let value: String
         public let detail: String
+        public let dashboardURL: String?
         public let meterPercent: Double?
         public let meterLabel: String?
         public let trend: [Double]
@@ -592,6 +594,7 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
     public let title: String
     public let value: String
     public let detail: String
+    public let dashboardURL: String?
     public let explanation: String
     public let meterPercent: Double?
     public let meterLabel: String?
@@ -606,6 +609,7 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
         title: String,
         value: String,
         detail: String,
+        dashboardURL: String? = nil,
         explanation: String,
         meterPercent: Double?,
         meterLabel: String?,
@@ -619,6 +623,7 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
         self.title = title
         self.value = value
         self.detail = detail
+        self.dashboardURL = dashboardURL
         self.explanation = explanation
         self.meterPercent = meterPercent
         self.meterLabel = meterLabel
@@ -738,6 +743,7 @@ public struct DashboardViewModel: Equatable, Sendable {
                     title: Self.rowTitle(for: snapshot),
                     value: Self.value(for: snapshot),
                     detail: Self.detail(for: snapshot, now: now),
+                    dashboardURL: Self.dashboardURL(for: snapshot),
                     explanation: Self.explanation(for: snapshot),
                     meterPercent: snapshot.usagePercent.map { min(max($0, 0), 1) },
                     meterLabel: Self.remainingLabel(for: snapshot),
@@ -1036,6 +1042,19 @@ public struct DashboardViewModel: Equatable, Sendable {
         }
         parts.append(confidenceLabel(snapshot.confidence))
         return parts.joined(separator: " · ")
+    }
+
+    private static func dashboardURL(for snapshot: UsageSnapshot) -> String? {
+        switch snapshot.provider {
+        case .cursor:
+            return "https://cursor.com/dashboard"
+        case .openRouter:
+            return "https://openrouter.ai/settings/credits"
+        case .openAI:
+            return "https://platform.openai.com/usage"
+        default:
+            return nil
+        }
     }
 
     private static func setupGuidance(for summary: UsageSummary) -> [DashboardSetupItem] {

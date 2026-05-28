@@ -966,6 +966,18 @@ private struct SourceRowView: View {
                     .monospacedDigit()
                     .foregroundStyle(row.state == .unknown ? .secondary : .primary)
                     .lineLimit(1)
+                if let dashboardURL = row.dashboardURL, let url = URL(string: dashboardURL) {
+                    Button {
+                        NSWorkspace.shared.open(url)
+                    } label: {
+                        Image(systemName: "arrow.up.forward.square")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 16, height: 16)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open provider dashboard")
+                }
             }
             if let percent = row.meterPercent {
                 MiniMeter(percent: percent, label: row.meterLabel ?? "quota lane", state: row.state)
