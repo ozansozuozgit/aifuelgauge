@@ -82,8 +82,8 @@ use right now without running into a limit?
   the popover answers both "what can I use now?" and "what should I watch?".
 - Guidance cards, copied status text, and `status.json` include the reason for
   each recommendation so external widgets and agents can explain the choice.
-- Provider rows include direct dashboard links for Cursor, OpenRouter, and
-  OpenAI when a safe usage page is known.
+- Primary gauge and provider rows include direct dashboard links for Cursor,
+  OpenRouter, and OpenAI when a safe usage page is known.
 - Optional budgets can turn OpenAI spend, Cursor spend, and OpenRouter key
   usage into comparable guardrails without hardcoding subscription plan limits.
 - Cursor spend rows come from the provider response instead of a hardcoded plan

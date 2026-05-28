@@ -10,8 +10,20 @@ public struct DashboardGauge: Equatable, Sendable {
     public let state: UsageState
     public let confidence: Confidence
     public let paceCaption: String?
+    public let dashboardURL: String?
 
-    public init(title: String, value: String, subtitle: String, caption: String, explanation: String = "", percent: Double, state: UsageState, confidence: Confidence, paceCaption: String? = nil) {
+    public init(
+        title: String,
+        value: String,
+        subtitle: String,
+        caption: String,
+        explanation: String = "",
+        percent: Double,
+        state: UsageState,
+        confidence: Confidence,
+        paceCaption: String? = nil,
+        dashboardURL: String? = nil
+    ) {
         self.title = title
         self.value = value
         self.subtitle = subtitle
@@ -21,6 +33,7 @@ public struct DashboardGauge: Equatable, Sendable {
         self.state = state
         self.confidence = confidence
         self.paceCaption = paceCaption
+        self.dashboardURL = dashboardURL
     }
 }
 
@@ -496,7 +509,8 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
                     percent: gauge.percent,
                     state: gauge.state.rawValue,
                     confidence: gauge.confidence.rawValue,
-                    pace: gauge.paceCaption
+                    pace: gauge.paceCaption,
+                    dashboardURL: gauge.dashboardURL
                 )
             },
             guidance: model.guidanceItems.map { item in
@@ -549,6 +563,7 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
         public let state: String
         public let confidence: String
         public let pace: String?
+        public let dashboardURL: String?
     }
 
     public struct Reset: Codable, Equatable, Sendable {
@@ -843,7 +858,8 @@ public struct DashboardViewModel: Equatable, Sendable {
             percent: clamped,
             state: snapshot.state,
             confidence: snapshot.confidence,
-            paceCaption: paceCaption(for: snapshot, historySamples: historySamples, now: now)
+            paceCaption: paceCaption(for: snapshot, historySamples: historySamples, now: now),
+            dashboardURL: dashboardURL(for: snapshot)
         )
     }
 

@@ -854,9 +854,23 @@ private struct PrimaryGaugeView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text(gauge.value)
-                    .font(.system(size: 22, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    Text(gauge.value)
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                    if let dashboardURL = gauge.dashboardURL, let url = URL(string: dashboardURL) {
+                        Button {
+                            NSWorkspace.shared.open(url)
+                        } label: {
+                            Image(systemName: "arrow.up.forward.square")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 18, height: 18)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Open provider dashboard")
+                    }
+                }
             }
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
