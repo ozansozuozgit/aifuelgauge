@@ -61,6 +61,8 @@ use right now without running into a limit?
 - Data controls to reveal or clear the local usage-history file.
 - App maintenance controls to check the latest GitHub release, open releases,
   copy the Homebrew update command, or reveal the installed standalone app.
+- Start-at-login controls can enable, disable, or inspect the LaunchAgent from
+  Settings without using terminal commands.
 - Local `status.json` export for WidgetKit, SketchyBar, Raycast, Übersicht, or
   other status surfaces that need a simple machine-readable snapshot.
 - Copyable compact status snapshot plus a full diagnostics report for source

@@ -1430,7 +1430,9 @@ private struct SettingsView: View {
     @State private var isTestingCursorUsage = false
     @State private var historyMessage: String = "History stores only lane IDs, timestamps, and percentages."
     @State private var maintenanceMessage: String = "Use Releases for signed zips, or copy the Homebrew command for terminal updates."
+    @State private var launchAgentMessage: String
     @State private var isCheckingForUpdates = false
+    @State private var isChangingLaunchAgent = false
     @State private var detectedCursorPlan: String
     @State private var detectedCursorStatus: String
     @State private var detectedCursorAccount: String
@@ -1471,6 +1473,7 @@ private struct SettingsView: View {
                 "Detected \(state.displayPlan ?? "plan unknown") · \(state.displayStatus ?? "status unknown") · \(state.maskedEmail ?? "account hidden"). Test for exact live usage."
             } ?? "Cursor account not detected yet. Open Cursor while signed in, then test again."
         _cursorMessage = State(initialValue: cursorMessage)
+        _launchAgentMessage = State(initialValue: LaunchAgentManager.statusMessage())
     }
 
     var body: some View {
@@ -1718,6 +1721,29 @@ private struct SettingsView: View {
                     Spacer()
                 }
                 Text(maintenanceMessage)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            SettingsPanel {
+                Text("Start at login")
+                    .font(.system(size: 11, weight: .semibold))
+                HStack(spacing: 8) {
+                    Button(isChangingLaunchAgent ? "Updating" : "Enable") {
+                        setLaunchAgent(enabled: true)
+                    }
+                    .disabled(isChangingLaunchAgent)
+                    Button(isChangingLaunchAgent ? "Updating" : "Disable") {
+                        setLaunchAgent(enabled: false)
+                    }
+                    .disabled(isChangingLaunchAgent)
+                    Button("Refresh status") {
+                        launchAgentMessage = LaunchAgentManager.statusMessage()
+                    }
+                    Spacer()
+                }
+                Text(launchAgentMessage)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -1982,8 +2008,114 @@ private struct SettingsView: View {
         maintenanceMessage = "Opened ~/Applications. The installed app was not found there."
     }
 
+    private func setLaunchAgent(enabled: Bool) {
+        isChangingLaunchAgent = true
+        launchAgentMessage = enabled ? "Enabling start at login..." : "Disabling start at login..."
+        Task {
+            let result: String
+            do {
+                if enabled {
+                    try LaunchAgentManager.enable()
+                    result = LaunchAgentManager.statusMessage()
+                } else {
+                    try LaunchAgentManager.disable()
+                    result = LaunchAgentManager.statusMessage()
+                }
+            } catch {
+                result = "Could not \(enabled ? "enable" : "disable") start at login: \(error.localizedDescription)"
+            }
+            await MainActor.run {
+                launchAgentMessage = result
+                isChangingLaunchAgent = false
+            }
+        }
+    }
+
     private var currentAppVersion: String? {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    }
+}
+
+private enum LaunchAgentManager {
+    private static let label = "com.ozansozuoz.aifuelgauge"
+
+    private static var plistURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents/\(label).plist")
+    }
+
+    private static var executableURL: URL? {
+        Bundle.main.executableURL
+    }
+
+    static func enable() throws {
+        guard let executableURL else {
+            throw LaunchAgentError.missingExecutable
+        }
+        try FileManager.default.createDirectory(at: plistURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let plist = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+          <key>Label</key>
+          <string>\(label)</string>
+          <key>ProgramArguments</key>
+          <array>
+            <string>\(executableURL.path)</string>
+          </array>
+          <key>RunAtLoad</key>
+          <true/>
+          <key>KeepAlive</key>
+          <false/>
+          <key>StandardOutPath</key>
+          <string>\(FileManager.default.homeDirectoryForCurrentUser.path)/Library/Logs/aifuelgauge.log</string>
+          <key>StandardErrorPath</key>
+          <string>\(FileManager.default.homeDirectoryForCurrentUser.path)/Library/Logs/aifuelgauge.log</string>
+        </dict>
+        </plist>
+        """
+        try plist.write(to: plistURL, atomically: true, encoding: .utf8)
+        _ = runLaunchctl(arguments: ["enable", "gui/\(getuid())/\(label)"])
+    }
+
+    static func disable() throws {
+        _ = runLaunchctl(arguments: ["disable", "gui/\(getuid())/\(label)"])
+        if FileManager.default.fileExists(atPath: plistURL.path) {
+            try FileManager.default.removeItem(at: plistURL)
+        }
+    }
+
+    static func statusMessage() -> String {
+        guard FileManager.default.fileExists(atPath: plistURL.path) else {
+            return "Start at login is off. Enable it to recreate the LaunchAgent."
+        }
+        let executablePath = executableURL?.path ?? "unknown executable"
+        return "Start at login is on. LaunchAgent: \(plistURL.path). Current executable: \(executablePath)."
+    }
+
+    @discardableResult
+    private static func runLaunchctl(arguments: [String]) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = arguments
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
+    }
+}
+
+private enum LaunchAgentError: LocalizedError {
+    case missingExecutable
+
+    var errorDescription: String? {
+        switch self {
+        case .missingExecutable: "Current app executable could not be found."
+        }
     }
 }
 
