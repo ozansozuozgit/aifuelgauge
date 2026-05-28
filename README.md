@@ -57,6 +57,9 @@ use right now without running into a limit?
   other status surfaces that need a simple machine-readable snapshot.
 - Copyable compact status snapshot plus a full diagnostics report for source
   status, history counts, and current refresh warnings without secrets.
+- Primary gauge and widget export include source explanations so the biggest
+  number says whether it came from an official API, Cursor auth, local metadata,
+  or a fallback.
 - Paste-friendly macOS Keychain storage for OpenRouter and OpenAI API keys.
 - OpenRouter key test action verifies exact usage access before saving.
 - OpenAI Admin key test action verifies official cost/usage access before

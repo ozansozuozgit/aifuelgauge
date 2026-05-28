@@ -5,16 +5,18 @@ public struct DashboardGauge: Equatable, Sendable {
     public let value: String
     public let subtitle: String
     public let caption: String
+    public let explanation: String
     public let percent: Double
     public let state: UsageState
     public let confidence: Confidence
     public let paceCaption: String?
 
-    public init(title: String, value: String, subtitle: String, caption: String, percent: Double, state: UsageState, confidence: Confidence, paceCaption: String? = nil) {
+    public init(title: String, value: String, subtitle: String, caption: String, explanation: String = "", percent: Double, state: UsageState, confidence: Confidence, paceCaption: String? = nil) {
         self.title = title
         self.value = value
         self.subtitle = subtitle
         self.caption = caption
+        self.explanation = explanation
         self.percent = percent
         self.state = state
         self.confidence = confidence
@@ -385,6 +387,9 @@ public enum DashboardStatusSnapshot {
         if let gauge = model.primaryGauge {
             let pace = gauge.paceCaption.map { " · \($0)" } ?? ""
             lines.append("Primary: \(gauge.title) · \(gauge.value) · \(gauge.subtitle)\(pace)")
+            if !gauge.explanation.isEmpty {
+                lines.append("Primary source: \(gauge.explanation)")
+            }
         }
 
         if !model.resetTimeline.isEmpty {
@@ -475,6 +480,7 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
                     value: gauge.value,
                     subtitle: gauge.subtitle,
                     caption: gauge.caption,
+                    explanation: gauge.explanation,
                     percent: gauge.percent,
                     state: gauge.state.rawValue,
                     confidence: gauge.confidence.rawValue,
@@ -494,6 +500,7 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
                     trend: row.trendPercents,
                     trendCaption: row.trendCaption,
                     pace: row.paceCaption,
+                    explanation: row.explanation,
                     confidence: row.confidence.rawValue,
                     state: row.state.rawValue
                 )
@@ -521,6 +528,7 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
         public let value: String
         public let subtitle: String
         public let caption: String
+        public let explanation: String
         public let percent: Double
         public let state: String
         public let confidence: String
@@ -543,6 +551,7 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
         public let trend: [Double]
         public let trendCaption: String?
         public let pace: String?
+        public let explanation: String
         public let confidence: String
         public let state: String
     }
@@ -781,6 +790,7 @@ public struct DashboardViewModel: Equatable, Sendable {
             value: value,
             subtitle: subtitle,
             caption: gaugeCaption(for: snapshot) ?? "Limit window active",
+            explanation: explanation(for: snapshot),
             percent: clamped,
             state: snapshot.state,
             confidence: snapshot.confidence,

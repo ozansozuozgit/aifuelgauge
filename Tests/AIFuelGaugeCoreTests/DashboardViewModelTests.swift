@@ -616,9 +616,12 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(export.statusLabel, "Safe")
         XCTAssertEqual(export.primary?.title, "Cursor · Pro · Included total")
         XCTAssertEqual(export.primary?.percent, 0.5)
+        XCTAssertEqual(export.primary?.explanation, "Exact from Cursor account usage. Uses the local Cursor auth token; no prompt text is read.")
         XCTAssertEqual(export.lanes.map(\.title), ["Cursor · Pro · Included total", "Codex · 5h"])
         XCTAssertEqual(export.lanes.map(\.meterLabel), ["50% left", "80% left"])
+        XCTAssertEqual(export.lanes.first?.explanation, "Exact from Cursor account usage. Uses the local Cursor auth token; no prompt text is read.")
         XCTAssertTrue(json.contains("\"menuTitle\" : \"Cursor 50%\""))
+        XCTAssertTrue(json.contains("\"explanation\" : \"Exact from Cursor account usage. Uses the local Cursor auth token; no prompt text is read.\""))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("sk-"))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("accessToken"))
         XCTAssertFalse(json.contains("user@example.com"))
@@ -643,6 +646,7 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.rows.first?.detail, "50% left · Exact · account · acct u***r@example.com · now")
         let status = DashboardStatusSnapshot.make(model: model, generatedAt: now)
         XCTAssertTrue(status.contains("acct u***r@example.com"))
+        XCTAssertTrue(status.contains("Primary source: Exact from Cursor account usage. Uses the local Cursor auth token; no prompt text is read."))
         XCTAssertFalse(status.contains("user@example.com"))
     }
 

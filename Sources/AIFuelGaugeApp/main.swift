@@ -825,6 +825,18 @@ private struct PrimaryGaugeView: View {
                         .lineLimit(2)
                 }
             }
+            if !gauge.explanation.isEmpty {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: gauge.confidence == .exact ? "checkmark.seal.fill" : "info.circle.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(color(for: gauge.state).opacity(gauge.confidence == .unknown ? 0.65 : 0.95))
+                        .frame(width: 10)
+                    Text(gauge.explanation)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary.opacity(0.82))
+                        .lineLimit(2)
+                }
+            }
         }
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.78), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
