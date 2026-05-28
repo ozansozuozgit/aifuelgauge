@@ -72,6 +72,8 @@ use right now without running into a limit?
   saving.
 - Cursor live-usage test verifies local account auth and current-period lanes
   without exposing the token.
+- Cursor detected plan/status can be refreshed in Settings after signing in or
+  switching accounts.
 - Cursor spend rows come from the provider response instead of a hardcoded plan
   budget.
 - Background refresh so opening the menu item does not block on large local logs.

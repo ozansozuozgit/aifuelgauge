@@ -1303,6 +1303,9 @@ private struct SettingsView: View {
                         }
                         .disabled(isTestingCursorUsage)
                         .help("Verify live Cursor usage without exposing your token")
+                        Button("Refresh detected plan") {
+                            refreshCursorDetection()
+                        }
                         Text(cursorMessage)
                             .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(.secondary)
@@ -1639,6 +1642,9 @@ private struct SettingsView: View {
         cursorMessage = "Testing Cursor live usage..."
         Task {
             let result: String
+            let account = CursorAccountStateReader(
+                cursorDirectory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Cursor")
+            ).read()
             do {
                 let snapshots = try await CursorUsageConnector(planPreferences: AppPreferences.localPlanPreferences()).fetchUsage()
                 result = CursorSetupCheck.successMessage(snapshots: snapshots)
@@ -1646,10 +1652,29 @@ private struct SettingsView: View {
                 result = CursorSetupCheck.failureMessage(error: error)
             }
             await MainActor.run {
+                updateCursorDetection(account)
                 cursorMessage = result
                 isTestingCursorUsage = false
             }
         }
+    }
+
+    private func refreshCursorDetection() {
+        let account = CursorAccountStateReader(
+            cursorDirectory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Cursor")
+        ).read()
+        updateCursorDetection(account)
+        if let account {
+            cursorMessage = "Detected \(account.displayPlan ?? "plan unknown") · \(account.displayStatus ?? "status unknown") · \(account.maskedEmail ?? "account hidden"). Test for exact live usage."
+        } else {
+            cursorMessage = "Cursor account not detected yet. Open Cursor while signed in, then test again."
+        }
+    }
+
+    private func updateCursorDetection(_ account: CursorAccountState?) {
+        detectedCursorPlan = account?.displayPlan ?? "Not found"
+        detectedCursorStatus = account?.displayStatus ?? "No local account status"
+        detectedCursorAccount = account?.maskedEmail ?? "No account identity"
     }
 
     private func revealHistory() {
