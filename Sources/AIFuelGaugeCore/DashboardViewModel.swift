@@ -750,18 +750,20 @@ public struct DashboardViewModel: Equatable, Sendable {
     ) {
         let visibleSummary = UsageSummary(snapshots: summary.snapshots.filter { monitoredProviders.contains($0.provider) })
         self.title = visibleSummary.menuBarTitle(mode: menuBarDisplayMode, history: history, providerFocus: menuBarProviderFocus)
-        self.state = visibleSummary.overallState
-        self.statusLabel = Self.statusLabel(for: visibleSummary.overallState)
+        let dashboardState = Self.dashboardState(for: visibleSummary)
+        self.state = dashboardState
+        self.statusLabel = Self.statusLabel(for: dashboardState)
         self.subtitle = Self.subtitle(for: visibleSummary, now: now)
         self.insight = Self.insight(for: visibleSummary, now: now)
         self.trustDigest = Self.trustDigest(for: visibleSummary)
         self.footerNote = Self.footerNote(for: visibleSummary)
         self.sourceHealth = Self.sourceHealth(for: visibleSummary, now: now)
-        self.guidanceItems = Self.guidanceItems(for: visibleSummary, now: now)
+        self.guidanceItems = Self.guidanceItems(for: visibleSummary, history: history, now: now)
         self.setupGuidance = Self.setupGuidance(for: visibleSummary, monitoredProviders: monitoredProviders)
         self.resetTimeline = Self.resetTimeline(for: visibleSummary, now: now)
-        self.primaryGauge = visibleSummary.primarySnapshot.flatMap { Self.gauge(for: $0, historySamples: historySamples, now: now) }
-        let hiddenPrimaryID = visibleSummary.primarySnapshot.flatMap { Self.hidesPrimaryRow($0) ? $0.id : nil }
+        let featuredSnapshot = Self.featuredSnapshot(for: visibleSummary)
+        self.primaryGauge = featuredSnapshot.flatMap { Self.gauge(for: $0, historySamples: historySamples, now: now) }
+        let hiddenPrimaryID = featuredSnapshot.flatMap { Self.hidesPrimaryRow($0) ? $0.id : nil }
         self.rows = visibleSummary.snapshots
             .filter { $0.id != hiddenPrimaryID }
             .sorted(by: Self.prefersRowOrder)
@@ -800,6 +802,28 @@ public struct DashboardViewModel: Equatable, Sendable {
             }
     }
 
+    private static func dashboardState(for summary: UsageSummary) -> UsageState {
+        let comparable = summary.snapshots.filter { $0.usagePercent?.isFinite == true && !$0.isSubscriptionOnly }
+        guard comparable.contains(where: { $0.state == .exhausted }) else {
+            return summary.overallState
+        }
+        if comparable.contains(where: { $0.state != .exhausted }) {
+            return .critical
+        }
+        return .exhausted
+    }
+
+    private static func featuredSnapshot(for summary: UsageSummary) -> UsageSnapshot? {
+        let comparable = summary.snapshots.filter { $0.usagePercent?.isFinite == true && !$0.isSubscriptionOnly }
+        let usable = comparable
+            .filter { $0.state != .exhausted }
+            .sorted(by: prefersFeaturedOrder)
+        if let first = usable.first {
+            return first
+        }
+        return summary.primarySnapshot
+    }
+
     private static func activeHistorySamples(for snapshot: UsageSnapshot, historySamples: [String: [UsageHistorySample]]) -> [UsageHistorySample] {
         guard snapshot.usagePercent != nil else { return [] }
         let sorted = (historySamples[snapshot.id] ?? [])
@@ -835,6 +859,9 @@ public struct DashboardViewModel: Equatable, Sendable {
             direction = "up \(deltaPoints) pts"
         } else {
             direction = "down \(abs(deltaPoints)) pts"
+        }
+        if let spike = usageSpike(for: snapshot, history: history) {
+            return "Spike +\(spike.points) pts recently · 7d peak \(peak)% · \(direction)"
         }
         return "7d peak \(peak)% · \(direction)"
     }
@@ -1038,11 +1065,41 @@ public struct DashboardViewModel: Equatable, Sendable {
         return items
     }
 
-    private static func guidanceItems(for summary: UsageSummary, now: Date) -> [DashboardGuidanceItem] {
+    private struct UsageSpike {
+        let snapshot: UsageSnapshot
+        let points: Int
+        let latestPercent: Int
+    }
+
+    private static func usageSpike(for snapshot: UsageSnapshot, history: [String: [Double]]) -> UsageSpike? {
+        let samples = trendPercents(for: snapshot, history: history)
+        guard samples.count >= 2, let latest = samples.last else { return nil }
+        let previousIndex = samples.index(samples.endIndex, offsetBy: -2)
+        let previous = samples[previousIndex]
+        let delta = latest - previous
+        guard latest >= 0.50, delta >= 0.20 else { return nil }
+        return UsageSpike(
+            snapshot: snapshot,
+            points: Int((delta * 100).rounded()),
+            latestPercent: Int((latest * 100).rounded())
+        )
+    }
+
+    private static func mostImportantSpike(in snapshots: [UsageSnapshot], history: [String: [Double]]) -> UsageSpike? {
+        snapshots
+            .compactMap { usageSpike(for: $0, history: history) }
+            .sorted { lhs, rhs in
+                if lhs.points != rhs.points { return lhs.points > rhs.points }
+                if lhs.latestPercent != rhs.latestPercent { return lhs.latestPercent > rhs.latestPercent }
+                return rowTitle(for: lhs.snapshot) < rowTitle(for: rhs.snapshot)
+            }
+            .first
+    }
+
+    private static func guidanceItems(for summary: UsageSummary, history: [String: [Double]], now: Date) -> [DashboardGuidanceItem] {
         let comparable = summary.snapshots.filter {
             $0.usagePercent?.isFinite == true && !$0.isSubscriptionOnly
         }
-        guard comparable.count >= 2 else { return [] }
 
         func percentUsed(_ snapshot: UsageSnapshot) -> Double {
             snapshot.usagePercent ?? 1
@@ -1064,6 +1121,18 @@ public struct DashboardViewModel: Equatable, Sendable {
             .first
 
         var items: [DashboardGuidanceItem] = []
+        if let spike = mostImportantSpike(in: comparable, history: history) {
+            items.append(DashboardGuidanceItem(
+                id: "spike-\(spike.snapshot.id)",
+                title: "Spike",
+                value: rowTitle(for: spike.snapshot),
+                detail: "+\(spike.points) pts recently · \(guidanceDetail(for: spike.snapshot, now: now))",
+                reason: "Largest recent increase in stored history.",
+                state: spike.snapshot.state == .safe ? .caution : spike.snapshot.state
+            ))
+        }
+        guard comparable.count >= 2 else { return items }
+
         if let mostRoom {
             items.append(DashboardGuidanceItem(
                 id: "most-room-\(mostRoom.id)",
@@ -1506,7 +1575,9 @@ public struct DashboardViewModel: Equatable, Sendable {
     }
 
     private static func prefersRowOrder(_ lhs: UsageSnapshot, _ rhs: UsageSnapshot) -> Bool {
-        if lhs.state != rhs.state { return lhs.state > rhs.state }
+        let leftPriority = rowStatePriority(lhs)
+        let rightPriority = rowStatePriority(rhs)
+        if leftPriority != rightPriority { return leftPriority > rightPriority }
         if lhs.provider == .codex, rhs.provider == .codex, lhs.state == .safe {
             let leftPriority = codexLanePriority(lhs)
             let rightPriority = codexLanePriority(rhs)
@@ -1524,6 +1595,38 @@ public struct DashboardViewModel: Equatable, Sendable {
                 return lhs.provider.displayName < rhs.provider.displayName
             }
             return lhs.label < rhs.label
+        }
+    }
+
+    private static func prefersFeaturedOrder(_ lhs: UsageSnapshot, _ rhs: UsageSnapshot) -> Bool {
+        if lhs.provider == .codex, rhs.provider == .codex, lhs.state == .safe {
+            let leftPriority = codexLanePriority(lhs)
+            let rightPriority = codexLanePriority(rhs)
+            if leftPriority != rightPriority { return leftPriority < rightPriority }
+        }
+        let leftPriority = rowStatePriority(lhs)
+        let rightPriority = rowStatePriority(rhs)
+        if leftPriority != rightPriority { return leftPriority > rightPriority }
+        switch (lhs.usagePercent, rhs.usagePercent) {
+        case let (left?, right?) where left != right:
+            return left > right
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        default:
+            return rowTitle(for: lhs) < rowTitle(for: rhs)
+        }
+    }
+
+    private static func rowStatePriority(_ snapshot: UsageSnapshot) -> Int {
+        if snapshot.isSubscriptionOnly { return 0 }
+        switch snapshot.state {
+        case .critical: return 5
+        case .caution: return 4
+        case .safe: return 3
+        case .exhausted: return 2
+        case .unknown: return snapshot.confidence == .estimated ? 1 : 0
         }
     }
 

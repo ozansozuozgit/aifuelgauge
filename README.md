@@ -90,6 +90,12 @@ use right now without running into a limit?
   instead of looking like duplicate 5h rows.
 - The dashboard separates the lane with the most room from the tightest lane so
   the popover answers both "what can I use now?" and "what should I watch?".
+- The lane list defaults to usable rows, offers an All filter for exhausted or
+  unknown rows, and keeps dense trend/source explanations behind a Details
+  toggle.
+- Exhausted lanes no longer become the featured card while other exact usable
+  lanes remain available.
+- Sudden recent usage jumps are surfaced as spike guidance and in trend copy.
 - Guidance cards, copied status text, and `status.json` include the reason for
   each recommendation so external widgets and agents can explain the choice.
 - Primary gauge and provider rows include direct dashboard links for Cursor,

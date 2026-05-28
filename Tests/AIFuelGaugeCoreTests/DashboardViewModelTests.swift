@@ -577,6 +577,45 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(steadyModel.rows.first?.trendCaption, "7d peak 20% · steady")
     }
 
+    func testSpikeGuidanceHighlightsSuddenRecentJump() {
+        let now = Date(timeIntervalSince1970: 100)
+        let summary = UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "cursor-account", displayName: "Cursor", plan: "Pro"),
+                label: "Included total",
+                used: .percent(68),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3600),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .openRouter,
+                source: .officialAPI,
+                label: "main",
+                used: .credits(12),
+                limit: .credits(100),
+                reset: nil,
+                confidence: .exact,
+                updatedAt: now
+            )
+        ])
+        let history = [
+            "cursor-cursor-account-Included total": [0.20, 0.41, 0.68],
+            "openRouter-main": [0.10, 0.12]
+        ]
+
+        let model = DashboardViewModel(summary: summary, now: now, history: history)
+
+        XCTAssertEqual(model.rows.first?.trendCaption, "Spike +27 pts recently · 7d peak 68% · up 48 pts")
+        XCTAssertEqual(model.guidanceItems.first?.title, "Spike")
+        XCTAssertEqual(model.guidanceItems.first?.value, "Cursor · Pro · Included total")
+        XCTAssertEqual(model.guidanceItems.first?.detail, "+27 pts recently · 32% left · resets in 1h · Exact")
+        XCTAssertEqual(model.guidanceItems.first?.state, .caution)
+    }
+
     func testPaceCaptionWarnsWhenBurnRateWillHitLimitBeforeReset() {
         let now = Date(timeIntervalSince1970: 10_000)
         let summary = UsageSummary(snapshots: [
@@ -604,6 +643,48 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.rows.first?.paceCaption, "Pace warning: limit in 18m, 1h 43m before reset.")
         let snapshot = DashboardStatusSnapshot.make(model: model, generatedAt: now)
         XCTAssertTrue(snapshot.contains("Pace warning: limit in 18m, 1h 43m before reset."))
+    }
+
+    func testExhaustedLaneDoesNotBecomePrimaryWhenUsableLanesRemain() {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "cursor-account", displayName: "Cursor", plan: "Pro"),
+                label: "API usage",
+                used: .percent(100),
+                limit: .percent(100),
+                reset: .fixed(Date(timeIntervalSince1970: 1_000_000)),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "codex-account", displayName: "Codex", plan: "Pro"),
+                label: "5h",
+                used: .percent(42),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 3600),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .openRouter,
+                source: .officialAPI,
+                label: "main",
+                used: .credits(8),
+                limit: .credits(100),
+                reset: nil,
+                confidence: .exact,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        XCTAssertEqual(model.statusLabel, "Near limit")
+        XCTAssertEqual(model.primaryGauge?.title, "Codex · Pro · 5h")
+        XCTAssertEqual(model.rows.map(\.title), ["OpenRouter · main", "Cursor · Pro · API usage"])
     }
 
     func testPaceCaptionShowsSafeProjectionAndIgnoresPreviousResetDrop() {

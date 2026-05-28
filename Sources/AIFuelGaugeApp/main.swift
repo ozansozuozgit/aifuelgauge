@@ -660,8 +660,19 @@ private struct DashboardActions {
 private struct DashboardView: View {
     @ObservedObject var controller: DashboardController
     let actions: DashboardActions
+    @State private var laneFilter: LaneFilter = .usable
+    @State private var showLaneDetails = false
 
     private var model: DashboardViewModel { controller.model }
+    private var visibleRows: [DashboardRow] {
+        switch laneFilter {
+        case .usable:
+            let usable = model.rows.filter { $0.state != .exhausted && $0.state != .unknown }
+            return usable.isEmpty ? model.rows : usable
+        case .all:
+            return model.rows
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -678,18 +689,19 @@ private struct DashboardView: View {
                 ResetTimelineStrip(items: model.resetTimeline)
             }
             if let gauge = model.primaryGauge {
-                PrimaryGaugeView(gauge: gauge)
+                PrimaryGaugeView(gauge: gauge, showsDetails: showLaneDetails)
             } else {
                 UnknownGaugeView()
             }
             if model.rows.isEmpty, model.primaryGauge == nil {
                 EmptySourcesView()
             } else if !model.rows.isEmpty {
+                laneToolbar
                 ScrollView {
                     VStack(spacing: 0) {
-                        ForEach(model.rows) { row in
-                            SourceRowView(row: row)
-                            if row.id != model.rows.last?.id {
+                        ForEach(visibleRows) { row in
+                            SourceRowView(row: row, showsDetails: showLaneDetails)
+                            if row.id != visibleRows.last?.id {
                                 Divider().padding(.leading, 20).opacity(0.45)
                             }
                         }
@@ -724,6 +736,28 @@ private struct DashboardView: View {
         return "\(model.footerNote) · \(model.trustDigest)"
     }
 
+    private var laneToolbar: some View {
+        HStack(spacing: 10) {
+            Text("Lanes")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Picker("Lane filter", selection: $laneFilter) {
+                Text("Usable").tag(LaneFilter.usable)
+                Text("All").tag(LaneFilter.all)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 118)
+            Spacer()
+            Toggle(isOn: $showLaneDetails) {
+                Image(systemName: "text.justify.left")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .toggleStyle(.button)
+            .controlSize(.small)
+            .help(showLaneDetails ? "Hide row details" : "Show row details")
+        }
+    }
+
     private var footer: some View {
         HStack(spacing: 8) {
             Text(controller.refreshError ?? footerStatusText)
@@ -740,6 +774,11 @@ private struct DashboardView: View {
         }
         .padding(.top, 1)
     }
+}
+
+private enum LaneFilter: Hashable {
+    case usable
+    case all
 }
 
 private struct GuidanceStrip: View {
@@ -940,6 +979,7 @@ private struct InsightStrip: View {
 
 private struct PrimaryGaugeView: View {
     let gauge: DashboardGauge
+    let showsDetails: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -999,7 +1039,7 @@ private struct PrimaryGaugeView: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary.opacity(0.75))
             }
-            if let paceCaption = gauge.paceCaption {
+            if let paceCaption = gauge.paceCaption, showsDetails || paceCaption.localizedCaseInsensitiveContains("warning") {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: paceCaption.localizedCaseInsensitiveContains("warning") ? "speedometer" : "checkmark.circle.fill")
                         .font(.system(size: 9, weight: .semibold))
@@ -1011,7 +1051,7 @@ private struct PrimaryGaugeView: View {
                         .lineLimit(2)
                 }
             }
-            if !gauge.explanation.isEmpty {
+            if showsDetails, !gauge.explanation.isEmpty {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: gauge.confidence == .exact ? "checkmark.seal.fill" : "info.circle.fill")
                         .font(.system(size: 9, weight: .semibold))
@@ -1066,6 +1106,7 @@ private struct EmptySourcesView: View {
 
 private struct SourceRowView: View {
     let row: DashboardRow
+    let showsDetails: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -1080,7 +1121,7 @@ private struct SourceRowView: View {
                     Text(row.detail)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .lineLimit(showsDetails ? 2 : 1)
                 }
                 Spacer(minLength: 8)
                 Text(row.value)
@@ -1115,7 +1156,8 @@ private struct SourceRowView: View {
                 MiniMeter(percent: percent, label: row.meterLabel ?? "quota lane", state: row.state)
                     .padding(.leading, 16)
             }
-            if row.trendPercents.count >= 2 {
+            let paceIsWarning = row.paceCaption?.localizedCaseInsensitiveContains("warning") == true
+            if showsDetails, row.trendPercents.count >= 2 {
                 UsageSparkline(samples: row.trendPercents, state: row.state)
                     .frame(height: 18)
                     .padding(.leading, 16)
@@ -1127,7 +1169,7 @@ private struct SourceRowView: View {
                         .padding(.leading, 16)
                 }
             }
-            if let paceCaption = row.paceCaption {
+            if let paceCaption = row.paceCaption, showsDetails || paceIsWarning {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: paceCaption.localizedCaseInsensitiveContains("warning") ? "speedometer" : "checkmark.circle.fill")
                         .font(.system(size: 9, weight: .semibold))
@@ -1140,7 +1182,7 @@ private struct SourceRowView: View {
                 }
                 .padding(.leading, 16)
             }
-            if !row.explanation.isEmpty {
+            if showsDetails, !row.explanation.isEmpty {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: row.confidence == .exact ? "checkmark.seal.fill" : "info.circle.fill")
                         .font(.system(size: 9, weight: .semibold))
@@ -1242,18 +1284,15 @@ private struct FooterButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: systemName)
-                    .font(.system(size: 9, weight: .semibold))
-                Text(title)
-                    .font(.system(size: 10, weight: .semibold))
-            }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 5)
+            Image(systemName: systemName)
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 28, height: 28)
+                .contentShape(Capsule())
             .background(.quaternary, in: Capsule())
         }
         .buttonStyle(.plain)
         .help(title)
+        .accessibilityLabel(title)
     }
 }
 
