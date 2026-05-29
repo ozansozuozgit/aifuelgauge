@@ -425,6 +425,8 @@ private final class DashboardController: ObservableObject {
     private var notifiedStaleIDs = Set<String>()
     private var lastRefreshAt = Date.distantPast
     private var lastLocalSourceFingerprint = LocalAgentSourceMonitor().fingerprint()
+    private var isLocalSourceScanInFlight = false
+    private let minimumLocalChangeRefreshInterval: TimeInterval = 60
 
     init() {
         let loadedHistory = UsageHistoryFileStore(fileURL: AppStoragePaths.historyURL).load()
@@ -476,17 +478,21 @@ private final class DashboardController: ObservableObject {
     }
 
     private func startLocalSourceMonitor() {
-        localSourceCancellable = Timer.publish(every: 20, tolerance: 5, on: .main, in: .common)
+        localSourceCancellable = Timer.publish(every: 60, tolerance: 15, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
-                guard let self else { return }
-                Task {
+                guard let self, !self.isLocalSourceScanInFlight else { return }
+                self.isLocalSourceScanInFlight = true
+                Task { [weak self] in
                     let fingerprint = await Task.detached(priority: .utility) {
                         LocalAgentSourceMonitor().fingerprint()
                     }.value
                     await MainActor.run {
+                        guard let self else { return }
+                        self.isLocalSourceScanInFlight = false
                         guard fingerprint != self.lastLocalSourceFingerprint else { return }
                         self.lastLocalSourceFingerprint = fingerprint
+                        guard Date().timeIntervalSince(self.lastRefreshAt) >= self.minimumLocalChangeRefreshInterval else { return }
                         self.refresh()
                     }
                 }

@@ -78,6 +78,7 @@ public final class OpenAIConnector {
         guard let url = components.url else { throw ConnectorError.invalidURL(path) }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
+        request.timeoutInterval = 10
         request.setValue("Bearer \(trimmedKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let (data, response) = try await transport.data(for: request)

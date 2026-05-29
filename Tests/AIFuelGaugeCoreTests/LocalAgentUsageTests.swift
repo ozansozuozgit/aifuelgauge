@@ -41,6 +41,26 @@ final class LocalAgentUsageTests: XCTestCase {
         XCTAssertTrue(withSession.values["codex-sessions"]?.contains(":1:") == true)
     }
 
+    func testLocalSourceFingerprintCoversLargeSessionSets() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let sessionDirectory = home.appendingPathComponent(".codex/sessions/2026/05/29")
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+
+        for index in 0..<450 {
+            let name = String(format: "session-%03d.jsonl", index)
+            try #"{"type":"event_msg"}"#.write(
+                to: sessionDirectory.appendingPathComponent(name),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let stamp = LocalAgentSourceMonitor(homeDirectory: home).fingerprint().values["codex-sessions"] ?? ""
+
+        XCTAssertTrue(stamp.contains(":450:"))
+        XCTAssertTrue(stamp.hasSuffix(":complete"))
+    }
+
     func testParsesClaudeJsonlAssistantUsageWithoutReadingMessageText() throws {
         let lines = [
             """

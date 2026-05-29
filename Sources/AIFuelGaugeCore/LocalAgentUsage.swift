@@ -74,6 +74,7 @@ public struct LocalAgentSourceFingerprint: Equatable, Sendable {
 public struct LocalAgentSourceMonitor {
     private let homeDirectory: URL
     private let fileManager: FileManager
+    private let maxFingerprintFiles = 2_000
 
     public init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser, fileManager: FileManager = .default) {
         self.homeDirectory = homeDirectory
@@ -116,8 +117,9 @@ public struct LocalAgentSourceMonitor {
         var count = 0
         var totalSize = 0
         var newestModifiedAt = rootModifiedAt
+        var truncated = false
         for item in enumerator {
-            guard count < 400, let fileURL = item as? URL else { break }
+            guard let fileURL = item as? URL else { break }
             if !allowedExtensions.isEmpty, !allowedExtensions.contains(fileURL.pathExtension.lowercased()) {
                 continue
             }
@@ -125,11 +127,15 @@ public struct LocalAgentSourceMonitor {
                   values.isRegularFile == true else {
                 continue
             }
+            if count >= maxFingerprintFiles {
+                truncated = true
+                break
+            }
             count += 1
             totalSize += values.fileSize ?? 0
             newestModifiedAt = max(newestModifiedAt, values.contentModificationDate?.timeIntervalSince1970 ?? 0)
         }
-        return "dir:\(Int(newestModifiedAt * 1_000)):\(count):\(totalSize)"
+        return "dir:\(Int(newestModifiedAt * 1_000)):\(count):\(totalSize):\(truncated ? "truncated" : "complete")"
     }
 }
 
@@ -440,18 +446,25 @@ public struct LocalUsageCollector {
             return []
         }
 
-        let files = enumerator.compactMap { item -> LocalJSONLFile? in
-            guard let fileURL = item as? URL, fileURL.pathExtension == "jsonl" else { return nil }
+        var newestFiles: [LocalJSONLFile] = []
+        newestFiles.reserveCapacity(maxFiles)
+        for item in enumerator {
+            guard let fileURL = item as? URL, fileURL.pathExtension == "jsonl" else { continue }
             guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey]),
-                  values.isRegularFile == true else { return nil }
-            return LocalJSONLFile(
+                  values.isRegularFile == true else { continue }
+            newestFiles.append(LocalJSONLFile(
                 url: fileURL,
                 modifiedAt: values.contentModificationDate ?? .distantPast,
                 byteSize: values.fileSize ?? 0
-            )
+            ))
+            if newestFiles.count > maxFiles * 2 {
+                newestFiles.sort { lhs, rhs in lhs.modifiedAt > rhs.modifiedAt }
+                newestFiles.removeSubrange(maxFiles...)
+            }
         }
-        .sorted { lhs, rhs in lhs.modifiedAt > rhs.modifiedAt }
-        .prefix(maxFiles)
+        let files = newestFiles
+            .sorted { lhs, rhs in lhs.modifiedAt > rhs.modifiedAt }
+            .prefix(maxFiles)
 
         var lines: [String] = []
         var bytesRead = 0
