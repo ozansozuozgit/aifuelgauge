@@ -952,7 +952,7 @@ public struct DashboardViewModel: Equatable, Sendable {
         guard !summary.snapshots.isEmpty else {
             return "Add one exact source, then the menu bar can warn before you stall."
         }
-        guard let snapshot = summary.primarySnapshot, let percent = snapshot.usagePercent else {
+        guard let snapshot = summary.primarySnapshot, snapshot.usagePercent != nil else {
             let subscriptionCount = summary.snapshots.filter(\.isSubscriptionOnly).count
             let localCount = summary.snapshots.filter { $0.source == .localLogs }.count
             let exactUnboundedCount = summary.snapshots.filter {
@@ -969,7 +969,6 @@ public struct DashboardViewModel: Equatable, Sendable {
         if let codexInsight = codexInsight(for: summary) {
             return codexInsight
         }
-        let remaining = max(0, Int(((1 - percent) * 100).rounded()))
         let comparable = summary.snapshots.compactMap { candidate -> (UsageSnapshot, Double)? in
             guard let value = candidate.usagePercent else { return nil }
             return (candidate, value)
@@ -978,15 +977,15 @@ public struct DashboardViewModel: Equatable, Sendable {
            let best = comparable.min(by: { $0.1 < $1.1 }),
            best.0.id != snapshot.id,
            best.0.state == .safe {
-            return "Use \(rowTitle(for: best.0)) now; \(rowTitle(for: snapshot)) is the reserve at \(remaining)% left."
+            return "Use \(rowTitle(for: best.0)) now; keep \(rowTitle(for: snapshot)) as reserve."
         }
         switch snapshot.state {
         case .safe:
-            return "Keep going. Tightest lane still has \(remaining)% headroom."
+            return "Keep going. Tightest lane still has headroom."
         case .caution:
-            return "Start watching \(rowTitle(for: snapshot)): \(remaining)% left."
+            return "Start watching \(rowTitle(for: snapshot))."
         case .critical:
-            return "Save your flow. \(rowTitle(for: snapshot)) has only \(remaining)% left."
+            return "Save your flow. \(rowTitle(for: snapshot)) is near limit."
         case .exhausted:
             return "This lane is spent. Switch provider or wait for reset."
         case .unknown:
@@ -1285,9 +1284,6 @@ public struct DashboardViewModel: Equatable, Sendable {
     }
 
     private static func resetTimelineDetail(for snapshot: UsageSnapshot, seconds: TimeInterval, now: Date) -> String {
-        let capacity = prefersRemainingDisplay(snapshot)
-            ? remainingLabel(for: snapshot)
-            : remainingLabel(for: snapshot) ?? usedLabel(for: snapshot)
         let resolvedResetDate = snapshot.reset.map { resetDate(for: $0, now: now) }
         var parts: [String] = []
         if snapshot.provider == .cursor {
@@ -1299,7 +1295,6 @@ public struct DashboardViewModel: Equatable, Sendable {
         } else {
             parts.append("reset window")
         }
-        if let capacity { parts.append(capacity) }
         return parts.joined(separator: " · ")
     }
 
@@ -1448,11 +1443,7 @@ public struct DashboardViewModel: Equatable, Sendable {
             return "Expired window · local · last event \(relativeTime(from: snapshot.updatedAt, now: now))"
         }
         var parts: [String] = []
-        if prefersRemainingDisplay(snapshot), let used = usedLabel(for: snapshot) {
-            parts.append(used)
-        } else if let remaining = remainingLabel(for: snapshot) {
-            parts.append(remaining)
-        } else if let breakdown = tokenBreakdown(for: snapshot.used) {
+        if snapshot.usagePercent == nil, let breakdown = tokenBreakdown(for: snapshot.used) {
             parts.append(breakdown)
         }
         if let reset = snapshot.reset {
@@ -1663,17 +1654,16 @@ public struct DashboardViewModel: Equatable, Sendable {
         if let stressed = codex
             .filter({ $0.state >= .caution })
             .sorted(by: prefersRowOrder)
-            .first,
-           let remaining = remainingLabel(for: stressed) {
-            return "\(rowTitle(for: stressed)) is the constraint: \(remaining)."
+            .first {
+            return "\(rowTitle(for: stressed)) is the constraint."
         }
         let session = codex.first { codexLanePriority($0) == 0 }
         let weekly = codex.first { codexLanePriority($0) == 2 }
-        if let session, let sessionRemaining = remainingLabel(for: session) {
-            if let weekly, let weeklyRemaining = remainingLabel(for: weekly) {
-                return "Use \(rowTitle(for: session)) now: \(sessionRemaining). Weekly reserve is \(weeklyRemaining)."
+        if let session, session.usagePercent != nil {
+            if let weekly, weekly.usagePercent != nil {
+                return "Use \(rowTitle(for: session)) now; keep Weekly as reserve."
             }
-            return "Use \(rowTitle(for: session)) now: \(sessionRemaining)."
+            return "Use \(rowTitle(for: session)) now."
         }
         return nil
     }

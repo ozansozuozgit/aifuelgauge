@@ -720,7 +720,7 @@ private struct DashboardView: View {
             id: "primary-\(gauge.title)-\(gauge.subtitle)",
             title: gauge.title,
             value: "\(gauge.value)\(valueSuffix)",
-            detail: gauge.subtitle,
+            detail: compactGaugeDetail(gauge.subtitle),
             dashboardURL: gauge.dashboardURL,
             explanation: gauge.explanation,
             meterPercent: gauge.percent,
@@ -731,6 +731,17 @@ private struct DashboardView: View {
             state: gauge.state
         )
         return [primaryRow] + model.rows
+    }
+
+    private func compactGaugeDetail(_ subtitle: String) -> String {
+        subtitle
+            .split(separator: "·")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter {
+                $0.localizedCaseInsensitiveCompare("left") != .orderedSame
+                    && $0.localizedCaseInsensitiveCompare("used") != .orderedSame
+            }
+            .joined(separator: " · ")
     }
 
     private var visibleRows: [DashboardRow] {
@@ -1049,7 +1060,12 @@ private struct SourceRowView: View {
                 }
             }
             if let percent = row.meterPercent {
-                MiniMeter(percent: percent, label: row.meterLabel ?? "quota lane", state: row.state)
+                MiniMeter(
+                    percent: percent,
+                    label: meterLabel(for: row),
+                    accessibilityLabel: row.meterLabel ?? row.value,
+                    state: row.state
+                )
                     .padding(.leading, 16)
             }
             if showsDetails, row.trendPercents.count >= 2 {
@@ -1095,6 +1111,15 @@ private struct SourceRowView: View {
         .padding(.vertical, 10)
         .frame(minHeight: showsDetails ? nil : 76, alignment: .topLeading)
     }
+
+    private func meterLabel(for row: DashboardRow) -> String? {
+        guard let label = row.meterLabel?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty else {
+            return nil
+        }
+        return label.localizedCaseInsensitiveCompare(row.value.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
+            ? nil
+            : label
+    }
 }
 
 private struct UsageSparkline: View {
@@ -1131,7 +1156,8 @@ private struct UsageSparkline: View {
 
 private struct MiniMeter: View {
     let percent: Double
-    let label: String
+    let label: String?
+    let accessibilityLabel: String
     let state: UsageState
 
     var body: some View {
@@ -1145,11 +1171,14 @@ private struct MiniMeter: View {
                 }
             }
             .frame(height: 5)
-            Text(label)
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(color(for: state))
-                .lineLimit(1)
+            if let label {
+                Text(label)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(color(for: state))
+                    .lineLimit(1)
+            }
         }
+        .accessibilityLabel(accessibilityLabel)
     }
 }
 

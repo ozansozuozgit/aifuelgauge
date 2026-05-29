@@ -32,7 +32,7 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.title, "OR 76% · 1h")
         XCTAssertEqual(model.subtitle, "Updated 1m ago")
         XCTAssertEqual(model.statusLabel, "Watch")
-        XCTAssertEqual(model.insight, "Start watching OpenRouter · main: 24% left.")
+        XCTAssertEqual(model.insight, "Start watching OpenRouter · main.")
         XCTAssertEqual(model.trustDigest, "1 exact · 1 estimated")
         XCTAssertEqual(model.footerNote, "Account live · local fallback")
         XCTAssertEqual(model.sourceHealth, [
@@ -47,7 +47,7 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.rows.map(\.title), ["OpenRouter · main", "Claude Code"])
         XCTAssertEqual(model.rows.map(\.dashboardURL), ["https://openrouter.ai/settings/credits", nil])
         XCTAssertEqual(model.rows.map(\.value), ["76% used", "460 tokens"])
-        XCTAssertEqual(model.rows.map(\.detail), ["24 credits left · resets in 1h · Exact · API · 1m ago", "in 100 · out 20 · cache 340 · Estimated · local · 1m ago"])
+        XCTAssertEqual(model.rows.map(\.detail), ["resets in 1h · Exact · API · 1m ago", "in 100 · out 20 · cache 340 · Estimated · local · 1m ago"])
         XCTAssertEqual(model.rows[0].meterPercent, 0.76)
         XCTAssertEqual(model.rows[0].meterLabel, "24 credits left")
         XCTAssertEqual(model.rows[0].trendPercents, [])
@@ -190,14 +190,14 @@ final class DashboardViewModelTests: XCTestCase {
         ]), now: now)
 
         XCTAssertEqual(model.title, "Codex 5h 95% left · 4m")
-        XCTAssertEqual(model.insight, "Use Codex · 5h now: 95% left. Weekly reserve is 57% left.")
+        XCTAssertEqual(model.insight, "Use Codex · 5h now; keep Weekly as reserve.")
         XCTAssertEqual(model.primaryGauge?.value, "95%")
         XCTAssertEqual(model.primaryGauge?.subtitle, "Exact · left · resets in 4m")
         XCTAssertEqual(model.primaryGauge?.caption, "5% used")
         XCTAssertEqual(model.rows.map(\.title), ["Codex · Weekly"])
         XCTAssertEqual(model.rows.map(\.value), ["57% left"])
         XCTAssertEqual(model.rows.map(\.detail), [
-            "43% used · resets Sat 4 PM (3d 2h) · Exact · local · 3h ago"
+            "resets Sat 4 PM (3d 2h) · Exact · local · 3h ago"
         ])
     }
 
@@ -281,9 +281,9 @@ final class DashboardViewModelTests: XCTestCase {
         ]), now: now)
 
         XCTAssertEqual(model.resetTimeline, [
-            DashboardResetItem(id: "codex-5h", title: "Codex · 5h", detail: "reset window · 95% left", value: "4m", state: .safe),
-            DashboardResetItem(id: "cursor-cursor-account-Included total", title: "Cursor · Pro · Included total", detail: "billing period · 41% left", value: "1h", state: .safe),
-            DashboardResetItem(id: "openRouter-main", title: "OpenRouter · main", detail: "reset window · 24 credits left", value: "2h", state: .caution)
+            DashboardResetItem(id: "codex-5h", title: "Codex · 5h", detail: "reset window", value: "4m", state: .safe),
+            DashboardResetItem(id: "cursor-cursor-account-Included total", title: "Cursor · Pro · Included total", detail: "billing period", value: "1h", state: .safe),
+            DashboardResetItem(id: "openRouter-main", title: "OpenRouter · main", detail: "reset window", value: "2h", state: .caution)
         ])
     }
 
@@ -422,7 +422,7 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.footerNote, "Account live")
         XCTAssertEqual(model.rows.map(\.title), ["Codex · Weekly"])
         XCTAssertEqual(model.rows.map(\.value), ["54% left"])
-        XCTAssertEqual(model.rows[0].detail, "46% used · resets Sat 7 PM (3d) · Exact · account · now")
+        XCTAssertEqual(model.rows[0].detail, "resets Sat 7 PM (3d) · Exact · account · now")
         XCTAssertEqual(model.rows[0].explanation, "Exact from Codex account usage. The 5h window is the active session limit; Weekly is the longer reserve.")
     }
 
@@ -925,7 +925,7 @@ final class DashboardViewModelTests: XCTestCase {
             )
         ]), now: now)
 
-        XCTAssertEqual(model.rows.first?.detail, "50% left · Exact · account · acct u***r@example.com · now")
+        XCTAssertEqual(model.rows.first?.detail, "Exact · account · acct u***r@example.com · now")
         let status = DashboardStatusSnapshot.make(model: model, generatedAt: now)
         XCTAssertTrue(status.contains("acct u***r@example.com"))
         XCTAssertTrue(status.contains("Primary source: Exact from Cursor account usage. Uses the local Cursor auth token; no prompt text is read."))
