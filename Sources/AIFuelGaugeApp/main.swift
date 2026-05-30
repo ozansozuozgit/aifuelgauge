@@ -60,6 +60,11 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showDashboard()
+        return false
+    }
+
     private func updateStatusItem(with model: DashboardViewModel) {
         guard let button = statusItem?.button else { return }
         button.title = ""
@@ -2065,10 +2070,14 @@ private enum LaunchAgentManager {
         </plist>
         """
         try plist.write(to: plistURL, atomically: true, encoding: .utf8)
+        _ = runLaunchctl(arguments: ["bootout", "gui/\(getuid())", plistURL.path])
+        _ = runLaunchctl(arguments: ["bootstrap", "gui/\(getuid())", plistURL.path])
         _ = runLaunchctl(arguments: ["enable", "gui/\(getuid())/\(label)"])
+        _ = runLaunchctl(arguments: ["kickstart", "-k", "gui/\(getuid())/\(label)"])
     }
 
     static func disable() throws {
+        _ = runLaunchctl(arguments: ["bootout", "gui/\(getuid())", plistURL.path])
         _ = runLaunchctl(arguments: ["disable", "gui/\(getuid())/\(label)"])
         if FileManager.default.fileExists(atPath: plistURL.path) {
             try FileManager.default.removeItem(at: plistURL)
