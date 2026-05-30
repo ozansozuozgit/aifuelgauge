@@ -737,6 +737,102 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.rows.map(\.title), ["OpenRouter · main", "Cursor · Pro · API usage"])
     }
 
+    func testConstrainedCodexWeeklyStaysVisibleWhenSessionWindowIsUsable() throws {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "codex-account", displayName: "Codex", plan: "Plus"),
+                label: "5h",
+                used: .percent(0),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 18_000),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "codex-account", displayName: "Codex", plan: "Plus"),
+                label: "Weekly",
+                used: .percent(100),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 300),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .openRouter,
+                source: .officialAPI,
+                label: "credits",
+                used: .credits(4),
+                limit: .credits(10),
+                reset: nil,
+                confidence: .exact,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        let weekly = try XCTUnwrap(model.rows.first { $0.title == "Codex · Plus · Weekly" })
+        XCTAssertEqual(weekly.value, "0% left")
+        XCTAssertEqual(weekly.meterLabel, "0% left")
+        XCTAssertTrue(weekly.detail.contains("weekly limit finished"))
+        XCTAssertTrue(weekly.showsInUsableFilter)
+    }
+
+    func testConstrainedCodexWeeklyRemainsInResetTimelineEvenWithOtherUsableResets() {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "codex-account", displayName: "Codex", plan: "Plus"),
+                label: "5h",
+                used: .percent(20),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 300),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .cursor,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "cursor-account", displayName: "Cursor", plan: "Pro"),
+                label: "Included total",
+                used: .percent(40),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 600),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .openRouter,
+                source: .officialAPI,
+                label: "credits",
+                used: .credits(4),
+                limit: .credits(10),
+                reset: .rollingWindow(secondsRemaining: 900),
+                confidence: .exact,
+                updatedAt: now
+            ),
+            UsageSnapshot(
+                provider: .codex,
+                source: .experimentalWebSession,
+                account: UsageAccount(identifier: "codex-account", displayName: "Codex", plan: "Plus"),
+                label: "Weekly",
+                used: .percent(100),
+                limit: .percent(100),
+                reset: .rollingWindow(secondsRemaining: 86_400),
+                confidence: .exact,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        XCTAssertEqual(model.resetTimeline.first?.title, "Codex · Plus · Weekly")
+        XCTAssertTrue(model.resetTimeline.map(\.title).contains("Codex · Plus · Weekly"))
+    }
+
     func testPaceCaptionShowsSafeProjectionAndIgnoresPreviousResetDrop() {
         let now = Date(timeIntervalSince1970: 10_000)
         let summary = UsageSummary(snapshots: [

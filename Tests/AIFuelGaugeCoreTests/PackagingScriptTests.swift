@@ -54,6 +54,17 @@ final class PackagingScriptTests: XCTestCase {
         XCTAssertTrue(script.contains("[[ ! -d \"$app_source\" ]]"), "install script should fail clearly if packaging did not produce an app")
     }
 
+    func testInAppLaunchAgentToggleDoesNotKillRunningApp() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appSource = try String(contentsOf: root.appendingPathComponent("Sources/AIFuelGaugeApp/main.swift"))
+
+        XCTAssertFalse(appSource.contains("runLaunchctl(arguments: [\"bootout\", \"gui/\\(getuid())\", plistURL.path])"), "in-app LaunchAgent toggle should not bootout and terminate the running app")
+        XCTAssertFalse(appSource.contains("runLaunchctl(arguments: [\"kickstart\", \"-k\", \"gui/\\(getuid())/\\(label)\"])"), "in-app LaunchAgent toggle should not force-restart itself")
+    }
+
     func testReleaseZipScriptAndWorkflowPublishTaggedBuilds() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

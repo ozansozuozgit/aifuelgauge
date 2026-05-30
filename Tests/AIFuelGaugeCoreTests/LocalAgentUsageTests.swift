@@ -107,6 +107,25 @@ final class LocalAgentUsageTests: XCTestCase {
         XCTAssertEqual(state.accessToken, "local-access-token")
     }
 
+    func testReadsClaudeAccountPlanFromLocalMetadata() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try """
+        {
+          "oauthAccount": {
+            "emailAddress": "user@example.com",
+            "organizationType": "claude_max_20x",
+            "billingType": "stripe_subscription"
+          }
+        }
+        """.write(to: home.appendingPathComponent(".claude.json"), atomically: true, encoding: .utf8)
+
+        let state = try XCTUnwrap(ClaudeAccountStateReader(homeDirectory: home).read())
+
+        XCTAssertEqual(state.displayPlan, "Max 20x")
+        XCTAssertEqual(state.maskedEmail, "u***r@example.com")
+    }
+
     func testParsesOpenCodeSQLiteTokenTotalsWithoutReadingMessages() throws {
         let dbURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

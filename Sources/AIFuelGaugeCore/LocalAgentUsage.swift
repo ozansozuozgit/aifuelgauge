@@ -158,6 +158,88 @@ public struct LocalPlanPreferences: Equatable, Sendable {
     }
 }
 
+public struct ClaudeAccountState: Equatable, Sendable {
+    public let organizationType: String?
+    public let email: String?
+    public let updatedAt: Date
+
+    public init(organizationType: String?, email: String?, updatedAt: Date) {
+        self.organizationType = organizationType
+        self.email = email
+        self.updatedAt = updatedAt
+    }
+
+    public var displayPlan: String? {
+        guard let organizationType else { return nil }
+        let normalized = organizationType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "claude_free", "free":
+            return "Free"
+        case "claude_pro", "pro":
+            return "Pro"
+        case "claude_max", "max":
+            return "Max"
+        case let value where value.contains("max") && value.contains("20"):
+            return "Max 20x"
+        case let value where value.contains("max") && value.contains("5"):
+            return "Max 5x"
+        case "":
+            return nil
+        default:
+            return organizationType
+                .replacingOccurrences(of: "claude_", with: "")
+                .replacingOccurrences(of: "_", with: " ")
+                .replacingOccurrences(of: "-", with: " ")
+                .split(separator: " ")
+                .map { word in word.prefix(1).uppercased() + word.dropFirst().lowercased() }
+                .joined(separator: " ")
+        }
+    }
+
+    public var maskedEmail: String? {
+        Self.maskEmail(email)
+    }
+
+    private static func maskEmail(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let atIndex = trimmed.firstIndex(of: "@"), atIndex > trimmed.startIndex else { return nil }
+        let local = String(trimmed[..<atIndex])
+        let domain = String(trimmed[trimmed.index(after: atIndex)...])
+        guard !domain.isEmpty else { return nil }
+        let first = local.first.map(String.init) ?? ""
+        let suffix = local.count > 2 ? String(local.suffix(1)) : ""
+        return "\(first)***\(suffix)@\(domain)"
+    }
+}
+
+public struct ClaudeAccountStateReader {
+    private let homeDirectory: URL
+    private let fileManager: FileManager
+
+    public init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser, fileManager: FileManager = .default) {
+        self.homeDirectory = homeDirectory
+        self.fileManager = fileManager
+    }
+
+    public func read() -> ClaudeAccountState? {
+        let url = homeDirectory.appendingPathComponent(".claude.json")
+        guard fileManager.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let account = object["oauthAccount"] as? [String: Any] else {
+            return nil
+        }
+        let updatedAt = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+        let state = ClaudeAccountState(
+            organizationType: account["organizationType"] as? String,
+            email: account["emailAddress"] as? String,
+            updatedAt: updatedAt
+        )
+        if state.organizationType == nil, state.email == nil { return nil }
+        return state
+    }
+}
+
 public struct ClaudeJSONLUsageParser {
     private let now: () -> Date
 
@@ -380,10 +462,17 @@ public struct LocalUsageCollector {
         for source in sources {
             switch source.provider {
             case .claudeCode:
+                let claudeAccount = ClaudeAccountStateReader(homeDirectory: homeDirectory, fileManager: fileManager).read()
+                let plan = planPreferences.claudeCodePlan ?? claudeAccount?.displayPlan
                 if let snapshot = try? ClaudeJSONLUsageParser(now: now).parse(
                     lines: readJSONLLines(recursivelyUnder: source.url),
                     label: "Claude Code",
-                    account: UsageAccount(identifier: "claude-code-local", displayName: "Claude Code", plan: planPreferences.claudeCodePlan)
+                    account: UsageAccount(
+                        identifier: "claude-code-local",
+                        displayName: "Claude Code",
+                        plan: plan,
+                        identityHint: claudeAccount?.maskedEmail
+                    )
                 ) {
                     snapshots.append(snapshot)
                 }

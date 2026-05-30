@@ -111,6 +111,22 @@ final class UsageStatusTests: XCTestCase {
         XCTAssertEqual(summary.menuBarTitle(mode: .minimal), "86% left")
     }
 
+    func testMenuBarCanPreferManuallyOrderedLane() {
+        let codex = snapshot(provider: .codex, label: "5h", percent: 0.14, reset: 3600)
+        let cursor = snapshot(provider: .cursor, label: "Included total", percent: 0.59, reset: 7200)
+        let summary = UsageSummary(snapshots: [codex, cursor])
+
+        XCTAssertEqual(summary.menuBarTitle(mode: .detailed), "Cursor 59% · 2h")
+        XCTAssertEqual(
+            summary.menuBarTitle(mode: .detailed, preferredSnapshotID: codex.id),
+            "Codex 5h 86% left · 1h"
+        )
+        XCTAssertEqual(
+            summary.menuBarTitle(mode: .pair, preferredSnapshotID: codex.id),
+            "Codex 5h 86% left · Cursor 59%"
+        )
+    }
+
     func testMenuBarAutoIgnoresExhaustedLaneWhenUsableLanesRemain() {
         let summary = UsageSummary(snapshots: [
             snapshot(provider: .cursor, label: "API usage", percent: 1.0, reset: 9 * 24 * 3600),

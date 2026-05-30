@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Security
 import SwiftUI
+import UniformTypeIdentifiers
 import UserNotifications
 import AIFuelGaugeCore
 
@@ -236,6 +237,7 @@ private enum AppPreferences {
     static let refreshIntervalSecondsKey = "refreshIntervalSeconds"
     static let menuBarDisplayModeKey = "menuBarDisplayMode"
     static let menuBarProviderFocusKey = "menuBarProviderFocus"
+    static let laneOrderKey = "laneOrder"
     static let openAIMonthlyBudgetUSDKey = "openAIMonthlyBudgetUSD"
     static let cursorMonthlyBudgetUSDKey = "cursorMonthlyBudgetUSD"
     static let openRouterMonthlyBudgetCreditsKey = "openRouterMonthlyBudgetCredits"
@@ -248,7 +250,7 @@ private enum AppPreferences {
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
-            claudeCodePlanLabelKey: "Free",
+            claudeCodePlanLabelKey: "",
             cursorPlanOverrideKey: "",
             alert50EnabledKey: false,
             alert75EnabledKey: true,
@@ -262,6 +264,7 @@ private enum AppPreferences {
             refreshIntervalSecondsKey: 180,
             menuBarDisplayModeKey: MenuBarDisplayMode.detailed.rawValue,
             menuBarProviderFocusKey: MenuBarProviderFocus.auto.rawValue,
+            laneOrderKey: [],
             openAIMonthlyBudgetUSDKey: "",
             cursorMonthlyBudgetUSDKey: "",
             openRouterMonthlyBudgetCreditsKey: "",
@@ -275,8 +278,11 @@ private enum AppPreferences {
     }
 
     static func localPlanPreferences() -> LocalPlanPreferences {
-        LocalPlanPreferences(
-            claudeCodePlan: string(for: claudeCodePlanLabelKey),
+        let detectedClaudePlan = ClaudeAccountStateReader().read()?.displayPlan
+        let manualClaudePlan = string(for: claudeCodePlanLabelKey)
+        let claudePlan = manualClaudePlan == "Free" ? (detectedClaudePlan ?? manualClaudePlan) : (manualClaudePlan ?? detectedClaudePlan)
+        return LocalPlanPreferences(
+            claudeCodePlan: claudePlan,
             cursorPlanOverride: string(for: cursorPlanOverrideKey)
         )
     }
@@ -321,6 +327,14 @@ private enum AppPreferences {
     static var menuBarProviderFocus: MenuBarProviderFocus {
         let rawValue = UserDefaults.standard.string(forKey: menuBarProviderFocusKey) ?? MenuBarProviderFocus.auto.rawValue
         return MenuBarProviderFocus(rawValue: rawValue) ?? .auto
+    }
+
+    static func laneOrder() -> [String] {
+        UserDefaults.standard.stringArray(forKey: laneOrderKey) ?? []
+    }
+
+    static func saveLaneOrder(_ order: [String]) {
+        UserDefaults.standard.set(order, forKey: laneOrderKey)
     }
 
     static func budgetPreferences() -> UsageBudgetPreferences {
@@ -442,7 +456,11 @@ private final class DashboardController: ObservableObject {
             historySamples: loadedHistory.samplesBySnapshotID,
             monitoredProviders: AppPreferences.monitoredProviders,
             menuBarProviderFocus: AppPreferences.menuBarProviderFocus,
-            menuBarDisplayMode: AppPreferences.menuBarDisplayMode
+            menuBarDisplayMode: AppPreferences.menuBarDisplayMode,
+            preferredMenuBarSnapshotID: Self.preferredMenuBarSnapshotID(
+                in: UsageSummary(snapshots: []),
+                monitoredProviders: AppPreferences.monitoredProviders
+            )
         )
         startAutoRefresh()
         startLocalSourceMonitor()
@@ -463,12 +481,19 @@ private final class DashboardController: ObservableObject {
             guard !Task.isCancelled else { return }
             guard let self else { return }
             let previous = self.summary
-            self.summary = result.summary
-            self.history.record(summary: result.summary)
+            let reconciler = UsageRefreshReconciler()
+            let reconciledSummary = reconciler.reconcile(current: result.summary, previous: previous)
+            let refreshError = reconciler.warningMessage(
+                original: result.error,
+                current: result.summary,
+                reconciled: reconciledSummary
+            )
+            self.summary = reconciledSummary
+            self.history.record(summary: reconciledSummary)
             try? self.historyStore.save(self.history)
             self.rebuildModel()
-            self.refreshError = result.error
-            self.deliverAlerts(for: result.summary, previous: previous)
+            self.refreshError = refreshError
+            self.deliverAlerts(for: reconciledSummary, previous: previous)
             self.isRefreshing = false
         }
     }
@@ -568,9 +593,18 @@ private final class DashboardController: ObservableObject {
             historySamples: history.samplesBySnapshotID,
             monitoredProviders: monitoredProviders,
             menuBarProviderFocus: AppPreferences.menuBarProviderFocus,
-            menuBarDisplayMode: AppPreferences.menuBarDisplayMode
+            menuBarDisplayMode: AppPreferences.menuBarDisplayMode,
+            preferredMenuBarSnapshotID: Self.preferredMenuBarSnapshotID(
+                in: currentSummary,
+                monitoredProviders: monitoredProviders
+            )
         )
         writeStatusExport()
+    }
+
+    private static func preferredMenuBarSnapshotID(in summary: UsageSummary, monitoredProviders: Set<Provider>) -> String? {
+        let visibleIDs = Set(summary.snapshots.filter { monitoredProviders.contains($0.provider) }.map(\.id))
+        return AppPreferences.laneOrder().first { visibleIDs.contains($0) }
     }
 
     private func writeStatusExport() {
@@ -719,6 +753,10 @@ private struct DashboardView: View {
     let actions: DashboardActions
     @State private var laneFilter: LaneFilter = .usable
     @State private var showLaneDetails = false
+    @State private var isReorderingRows = false
+    @State private var draggingRowID: String?
+    @State private var rowFrames: [String: CGRect] = [:]
+    @State private var customLaneOrder = AppPreferences.laneOrder()
 
     private var model: DashboardViewModel { controller.model }
     private var usageRows: [DashboardRow] {
@@ -728,7 +766,7 @@ private struct DashboardView: View {
         }
         let valueSuffix = gauge.subtitle.localizedCaseInsensitiveContains("left") ? " left" : " used"
         let primaryRow = DashboardRow(
-            id: "primary-\(gauge.title)-\(gauge.subtitle)",
+            id: gauge.snapshotID,
             title: gauge.title,
             value: "\(gauge.value)\(valueSuffix)",
             detail: compactGaugeDetail(gauge.subtitle),
@@ -755,14 +793,54 @@ private struct DashboardView: View {
             .joined(separator: " · ")
     }
 
+    private var orderedUsageRows: [DashboardRow] {
+        applyCustomLaneOrder(to: usageRows)
+    }
+
     private var visibleRows: [DashboardRow] {
         switch laneFilter {
         case .usable:
-            let usable = usageRows.filter { $0.state != .exhausted && $0.state != .unknown }
-            return usable.isEmpty ? usageRows : usable
+            let usable = orderedUsageRows.filter(\.showsInUsableFilter)
+            return usable.isEmpty ? orderedUsageRows : usable
         case .all:
-            return usageRows
+            return orderedUsageRows
         }
+    }
+
+    private func applyCustomLaneOrder(to rows: [DashboardRow]) -> [DashboardRow] {
+        guard !customLaneOrder.isEmpty else { return rows }
+        let rowsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
+        let ordered = customLaneOrder.compactMap { rowsByID[$0] }
+        let orderedIDs = Set(ordered.map(\.id))
+        return ordered + rows.filter { !orderedIDs.contains($0.id) }
+    }
+
+    private func persistLaneOrder(_ orderedIDs: [String]) {
+        let knownIDs = Set(usageRows.map(\.id))
+        let prunedIDs = orderedIDs.filter { knownIDs.contains($0) }
+        customLaneOrder = prunedIDs
+        AppPreferences.saveLaneOrder(prunedIDs)
+    }
+
+    private func moveRow(sourceID: String, beforeOrAfter targetID: String) {
+        guard sourceID != targetID else { return }
+        var orderedIDs = orderedUsageRows.map(\.id)
+        guard let sourceIndex = orderedIDs.firstIndex(of: sourceID),
+              let targetIndex = orderedIDs.firstIndex(of: targetID) else {
+            return
+        }
+        orderedIDs.move(
+            fromOffsets: IndexSet(integer: sourceIndex),
+            toOffset: targetIndex > sourceIndex ? targetIndex + 1 : targetIndex
+        )
+        persistLaneOrder(orderedIDs)
+    }
+
+    private func moveVisibleRow(_ row: DashboardRow, delta: Int) {
+        guard let index = visibleRows.firstIndex(where: { $0.id == row.id }) else { return }
+        let targetIndex = index + delta
+        guard visibleRows.indices.contains(targetIndex) else { return }
+        moveRow(sourceID: row.id, beforeOrAfter: visibleRows[targetIndex].id)
     }
 
     var body: some View {
@@ -777,12 +855,16 @@ private struct DashboardView: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         ForEach(visibleRows) { row in
-                            SourceRowView(row: row, showsDetails: showLaneDetails)
+                            rowView(row)
                             if row.id != visibleRows.last?.id {
                                 Divider().padding(.leading, 20).opacity(0.45)
                             }
                         }
                     }
+                }
+                .coordinateSpace(name: "lane-list")
+                .onPreferenceChange(LaneFramePreferenceKey.self) { frames in
+                    rowFrames = frames
                 }
                 .frame(maxHeight: showLaneDetails ? 430 : 390)
                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -796,6 +878,93 @@ private struct DashboardView: View {
         .padding(16)
         .frame(width: 500, height: 700)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    @ViewBuilder
+    private func rowView(_ row: DashboardRow) -> some View {
+        if isReorderingRows {
+            HStack(spacing: 0) {
+                VStack(spacing: 5) {
+                    Button {
+                        moveVisibleRow(row, delta: -1)
+                    } label: {
+                        Image(systemName: "chevron.up")
+                            .font(.system(size: 9, weight: .semibold))
+                            .frame(width: 17, height: 17)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(visibleRows.first?.id == row.id)
+                    .help("Move up")
+
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary.opacity(0.75))
+                        .frame(width: 18, height: 18)
+                        .help("Drag to reorder")
+
+                    Button {
+                        moveVisibleRow(row, delta: 1)
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .semibold))
+                            .frame(width: 17, height: 17)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(visibleRows.last?.id == row.id)
+                    .help("Move down")
+                }
+                .padding(.leading, 8)
+                .padding(.trailing, 2)
+
+                SourceRowView(row: row, showsDetails: showLaneDetails)
+                    .opacity(draggingRowID == row.id ? 0.55 : 1)
+            }
+            .contentShape(Rectangle())
+            .gesture(reorderDragGesture(for: row))
+            .background(rowFrameReader(for: row.id))
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(isReorderingRows ? Color(nsColor: .selectedControlColor).opacity(draggingRowID == row.id ? 0.16 : 0.05) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(Color.accentColor.opacity(draggingRowID == row.id ? 0.35 : 0.16), lineWidth: 1)
+            )
+        } else {
+            SourceRowView(row: row, showsDetails: showLaneDetails)
+                .background(rowFrameReader(for: row.id))
+        }
+    }
+
+    private func reorderDragGesture(for row: DashboardRow) -> some Gesture {
+        DragGesture(minimumDistance: 2, coordinateSpace: .named("lane-list"))
+            .onChanged { value in
+                draggingRowID = row.id
+                guard visibleRows.count > 1 else { return }
+                let targetY = value.location.y
+                guard let target = visibleRows
+                    .filter({ $0.id != row.id })
+                    .compactMap({ candidate -> (DashboardRow, CGFloat)? in
+                        guard let frame = rowFrames[candidate.id] else { return nil }
+                        return (candidate, abs(frame.midY - targetY))
+                    })
+                    .min(by: { $0.1 < $1.1 })?.0 else {
+                    return
+                }
+                moveRow(sourceID: row.id, beforeOrAfter: target.id)
+            }
+            .onEnded { _ in
+                draggingRowID = nil
+            }
+    }
+
+    private func rowFrameReader(for id: String) -> some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: LaneFramePreferenceKey.self,
+                value: [id: proxy.frame(in: .named("lane-list"))]
+            )
+        }
     }
 
     private var header: some View {
@@ -834,6 +1003,14 @@ private struct DashboardView: View {
                 .monospacedDigit()
                 .foregroundStyle(.secondary.opacity(0.72))
             Spacer()
+            Button {
+                isReorderingRows.toggle()
+            } label: {
+                Label(isReorderingRows ? "Done" : "Reorder", systemImage: "arrow.up.arrow.down")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .controlSize(.small)
+            .help(isReorderingRows ? "Done reordering" : "Reorder rows")
             Toggle(isOn: $showLaneDetails) {
                 Image(systemName: "text.justify.left")
                     .font(.system(size: 10, weight: .semibold))
@@ -868,6 +1045,14 @@ private struct DashboardView: View {
 private enum LaneFilter: Hashable {
     case usable
     case all
+}
+
+private struct LaneFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, newValue in newValue })
+    }
 }
 
 private struct ResetContextStrip: View {
@@ -1417,10 +1602,13 @@ private struct SettingsView: View {
     @State private var launchAgentMessage: String
     @State private var isCheckingForUpdates = false
     @State private var isChangingLaunchAgent = false
+    @State private var detectedClaudePlan: String
+    @State private var detectedClaudeAccount: String
+    @State private var claudeMessage: String
     @State private var detectedCursorPlan: String
     @State private var detectedCursorStatus: String
     @State private var detectedCursorAccount: String
-    @AppStorage(AppPreferences.claudeCodePlanLabelKey) private var claudeCodePlanLabel = "Free"
+    @AppStorage(AppPreferences.claudeCodePlanLabelKey) private var claudeCodePlanLabel = ""
     @AppStorage(AppPreferences.cursorPlanOverrideKey) private var cursorPlanOverride = ""
     @AppStorage(AppPreferences.alert50EnabledKey) private var alert50Enabled = false
     @AppStorage(AppPreferences.alert75EnabledKey) private var alert75Enabled = true
@@ -1447,6 +1635,10 @@ private struct SettingsView: View {
     init() {
         _openRouterKey = State(initialValue: KeychainStore.readOpenRouterKey() ?? "")
         _openAIAdminKey = State(initialValue: KeychainStore.readOpenAIAdminKey() ?? "")
+        let claudeState = ClaudeAccountStateReader().read()
+        _detectedClaudePlan = State(initialValue: claudeState?.displayPlan ?? "Not found")
+        _detectedClaudeAccount = State(initialValue: claudeState?.maskedEmail ?? "No account identity")
+        _claudeMessage = State(initialValue: Self.claudeDetectionMessage(claudeState))
         let cursorState = CursorAccountStateReader(
             cursorDirectory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Cursor")
         ).read()
@@ -1459,6 +1651,13 @@ private struct SettingsView: View {
             } ?? "Cursor account not detected yet. Open Cursor while signed in, then test again."
         _cursorMessage = State(initialValue: cursorMessage)
         _launchAgentMessage = State(initialValue: LaunchAgentManager.statusMessage())
+    }
+
+    private static func claudeDetectionMessage(_ state: ClaudeAccountState?) -> String {
+        guard let state else {
+            return "Claude account metadata not detected. Run Claude Code once, then refresh."
+        }
+        return "Detected \(state.displayPlan ?? "plan unknown") · \(state.maskedEmail ?? "account hidden") from ~/.claude.json."
     }
 
     var body: some View {
@@ -1476,9 +1675,16 @@ private struct SettingsView: View {
                     Text("Plan labels")
                         .font(.system(size: 11, weight: .semibold))
                     EditablePlanRow(provider: "Codex", value: "Auto from account", detail: "Exact plan and quota from ~/.codex/auth.json when available.")
-                    EditableTextPlanRow(provider: "Claude Code", text: $claudeCodePlanLabel, placeholder: "Free", detail: "Shown with local token estimates. Clear it if this is wrong.")
+                    EditableTextPlanRow(provider: "Claude Code", text: $claudeCodePlanLabel, placeholder: detectedClaudePlan, detail: "Auto-detected: \(detectedClaudePlan) · \(detectedClaudeAccount). Override only if needed.")
                     EditableTextPlanRow(provider: "Cursor", text: $cursorPlanOverride, placeholder: detectedCursorPlan, detail: "Detected: \(detectedCursorPlan) · \(detectedCursorStatus) · \(detectedCursorAccount). Override only if needed.")
                     HStack(spacing: 8) {
+                        Button("Refresh Claude") {
+                            refreshClaudeDetection()
+                        }
+                        Button("Use detected Claude") {
+                            claudeCodePlanLabel = detectedClaudePlan == "Not found" ? "" : detectedClaudePlan
+                        }
+                        .disabled(detectedClaudePlan == "Not found")
                         Button(isTestingCursorUsage ? "Testing Cursor" : "Test Cursor") {
                             testCursorUsage()
                         }
@@ -1487,7 +1693,7 @@ private struct SettingsView: View {
                         Button("Refresh detected plan") {
                             refreshCursorDetection()
                         }
-                        Text(cursorMessage)
+                        Text("\(claudeMessage) \(cursorMessage)")
                             .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
@@ -1899,6 +2105,13 @@ private struct SettingsView: View {
         }
     }
 
+    private func refreshClaudeDetection() {
+        let account = ClaudeAccountStateReader().read()
+        detectedClaudePlan = account?.displayPlan ?? "Not found"
+        detectedClaudeAccount = account?.maskedEmail ?? "No account identity"
+        claudeMessage = Self.claudeDetectionMessage(account)
+    }
+
     private func refreshCursorDetection() {
         let account = CursorAccountStateReader(
             cursorDirectory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Cursor")
@@ -2070,14 +2283,10 @@ private enum LaunchAgentManager {
         </plist>
         """
         try plist.write(to: plistURL, atomically: true, encoding: .utf8)
-        _ = runLaunchctl(arguments: ["bootout", "gui/\(getuid())", plistURL.path])
-        _ = runLaunchctl(arguments: ["bootstrap", "gui/\(getuid())", plistURL.path])
         _ = runLaunchctl(arguments: ["enable", "gui/\(getuid())/\(label)"])
-        _ = runLaunchctl(arguments: ["kickstart", "-k", "gui/\(getuid())/\(label)"])
     }
 
     static func disable() throws {
-        _ = runLaunchctl(arguments: ["bootout", "gui/\(getuid())", plistURL.path])
         _ = runLaunchctl(arguments: ["disable", "gui/\(getuid())/\(label)"])
         if FileManager.default.fileExists(atPath: plistURL.path) {
             try FileManager.default.removeItem(at: plistURL)

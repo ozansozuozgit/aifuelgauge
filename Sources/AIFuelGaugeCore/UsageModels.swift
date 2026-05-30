@@ -235,6 +235,28 @@ public struct UsageSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
     public var isSubscriptionOnly: Bool {
         limit == nil && label.localizedCaseInsensitiveContains("subscription")
     }
+
+    public func withProviderNote(_ note: String) -> UsageSnapshot {
+        let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let combinedNote: String?
+        if let providerNote, !providerNote.isEmpty, !trimmedNote.isEmpty {
+            combinedNote = "\(providerNote) \(trimmedNote)"
+        } else {
+            combinedNote = trimmedNote.isEmpty ? providerNote : trimmedNote
+        }
+        return UsageSnapshot(
+            provider: provider,
+            source: source,
+            account: account,
+            label: label,
+            used: used,
+            limit: limit,
+            reset: reset,
+            confidence: confidence,
+            providerNote: combinedNote,
+            updatedAt: updatedAt
+        )
+    }
 }
 
 public struct UsageSummary: Equatable, Sendable {
@@ -261,8 +283,13 @@ public struct UsageSummary: Equatable, Sendable {
     public func menuBarTitle(
         mode: MenuBarDisplayMode,
         history: [String: [Double]] = [:],
-        providerFocus: MenuBarProviderFocus = .auto
+        providerFocus: MenuBarProviderFocus = .auto,
+        preferredSnapshotID: String? = nil
     ) -> String {
+        if let preferredSnapshotID,
+           let preferredSnapshot = snapshots.first(where: { $0.id == preferredSnapshotID }) {
+            return Self.menuBarTitle(for: preferredSnapshot, in: snapshots, mode: mode, history: history)
+        }
         if let provider = providerFocus.provider {
             let focusedSummary = UsageSummary(snapshots: snapshots.filter { $0.provider == provider })
             if focusedSummary.snapshots.isEmpty {
@@ -313,6 +340,51 @@ public struct UsageSummary: Equatable, Sendable {
             return "\(percentage)%\(qualifier)"
         }
         return Self.menuBarSegment(for: primarySnapshot, includeReset: true)
+    }
+
+    private static func menuBarTitle(
+        for primarySnapshot: UsageSnapshot,
+        in snapshots: [UsageSnapshot],
+        mode: MenuBarDisplayMode,
+        history: [String: [Double]]
+    ) -> String {
+        guard let percent = primarySnapshot.usagePercent else {
+            guard primarySnapshot.confidence == .exact, primarySnapshot.source == .officialAPI else {
+                return "AI usage"
+            }
+            return menuBarUnboundedSegment(for: primarySnapshot)
+        }
+        switch mode {
+        case .detailed:
+            return menuBarSegment(for: primarySnapshot, includeReset: true)
+        case .pair:
+            let paired = menuBarSnapshots(in: snapshots)
+                .filter { $0.id != primarySnapshot.id && $0.usagePercent != nil }
+                .sorted(by: prefersForPrimary)
+                .first
+            let lanes = ([primarySnapshot] + [paired].compactMap { $0 })
+                .map { menuBarSegment(for: $0, includeReset: false) }
+            return lanes.joined(separator: " · ")
+        case .compact:
+            return menuBarSegment(for: primarySnapshot, includeReset: false)
+        case .sparkline:
+            let base = menuBarSegment(for: primarySnapshot, includeReset: false)
+            guard let sparkline = menuBarSparkline(for: primarySnapshot, history: history[primarySnapshot.id]) else {
+                return base
+            }
+            return "\(base) \(sparkline)"
+        case .minimal:
+            let percentage: Int
+            let qualifier: String
+            if prefersRemainingDisplay(primarySnapshot) {
+                percentage = Int((max(0, 1 - percent) * 100).rounded())
+                qualifier = " left"
+            } else {
+                percentage = Int((percent * 100).rounded())
+                qualifier = ""
+            }
+            return "\(percentage)%\(qualifier)"
+        }
     }
 
     private static func menuBarSnapshot(in snapshots: [UsageSnapshot]) -> UsageSnapshot? {

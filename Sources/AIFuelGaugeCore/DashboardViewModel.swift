@@ -1,6 +1,7 @@
 import Foundation
 
 public struct DashboardGauge: Equatable, Sendable {
+    public let snapshotID: String
     public let title: String
     public let value: String
     public let subtitle: String
@@ -14,6 +15,7 @@ public struct DashboardGauge: Equatable, Sendable {
     public let receiptText: String
 
     public init(
+        snapshotID: String = "",
         title: String,
         value: String,
         subtitle: String,
@@ -26,6 +28,7 @@ public struct DashboardGauge: Equatable, Sendable {
         dashboardURL: String? = nil,
         receiptText: String = ""
     ) {
+        self.snapshotID = snapshotID
         self.title = title
         self.value = value
         self.subtitle = subtitle
@@ -626,6 +629,7 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
     public let receiptText: String
     public let confidence: Confidence
     public let state: UsageState
+    public let showsInUsableFilter: Bool
 
     public init(
         id: String,
@@ -641,7 +645,8 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
         paceCaption: String? = nil,
         receiptText: String = "",
         confidence: Confidence,
-        state: UsageState
+        state: UsageState,
+        showsInUsableFilter: Bool? = nil
     ) {
         self.id = id
         self.title = title
@@ -657,6 +662,7 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
         self.receiptText = receiptText
         self.confidence = confidence
         self.state = state
+        self.showsInUsableFilter = showsInUsableFilter ?? (state != .exhausted && state != .unknown)
     }
 }
 
@@ -746,10 +752,16 @@ public struct DashboardViewModel: Equatable, Sendable {
         historySamples: [String: [UsageHistorySample]] = [:],
         monitoredProviders: Set<Provider> = Set(Provider.allCases),
         menuBarProviderFocus: MenuBarProviderFocus = .auto,
-        menuBarDisplayMode: MenuBarDisplayMode = .detailed
+        menuBarDisplayMode: MenuBarDisplayMode = .detailed,
+        preferredMenuBarSnapshotID: String? = nil
     ) {
         let visibleSummary = UsageSummary(snapshots: summary.snapshots.filter { monitoredProviders.contains($0.provider) })
-        self.title = visibleSummary.menuBarTitle(mode: menuBarDisplayMode, history: history, providerFocus: menuBarProviderFocus)
+        self.title = visibleSummary.menuBarTitle(
+            mode: menuBarDisplayMode,
+            history: history,
+            providerFocus: menuBarProviderFocus,
+            preferredSnapshotID: preferredMenuBarSnapshotID
+        )
         let dashboardState = Self.dashboardState(for: visibleSummary)
         self.state = dashboardState
         self.statusLabel = Self.statusLabel(for: dashboardState)
@@ -797,7 +809,8 @@ public struct DashboardViewModel: Equatable, Sendable {
                         now: now
                     ),
                     confidence: snapshot.confidence,
-                    state: snapshot.state
+                    state: snapshot.state,
+                    showsInUsableFilter: Self.showsInUsableFilter(snapshot)
                 )
             }
     }
@@ -908,6 +921,7 @@ public struct DashboardViewModel: Equatable, Sendable {
         let paceCaption = paceCaption(for: snapshot, historySamples: historySamples, now: now)
         let dashboardURL = dashboardURL(for: snapshot)
         return DashboardGauge(
+            snapshotID: snapshot.id,
             title: Self.rowTitle(for: snapshot),
             value: value,
             subtitle: subtitle,
@@ -1165,6 +1179,11 @@ public struct DashboardViewModel: Equatable, Sendable {
         if let reset = snapshot.reset {
             parts.append(resetPhrase(for: reset, now: now))
         }
+        if isConstrainedCodexReserve(snapshot), snapshot.state == .exhausted {
+            parts.append("weekly limit finished")
+        } else if isConstrainedCodexReserve(snapshot) {
+            parts.append("weekly reserve low")
+        }
         parts.append(confidenceLabel(snapshot.confidence))
         return parts.joined(separator: " · ")
     }
@@ -1264,10 +1283,18 @@ public struct DashboardViewModel: Equatable, Sendable {
                 return (snapshot, secondsRemaining(for: reset, now: now))
             }
 
+        let protectedReserveIDs = Set(resettable.compactMap { snapshot, _ in
+            isConstrainedCodexReserve(snapshot) ? snapshot.id : nil
+        })
         let usable = resettable.filter { $0.0.state != .exhausted }
-        let candidates = usable.count >= 3 ? usable : resettable
+        let candidates = usable.count >= 3
+            ? resettable.filter { $0.0.state != .exhausted || protectedReserveIDs.contains($0.0.id) }
+            : resettable
         return candidates
             .sorted { lhs, rhs in
+                let leftProtected = protectedReserveIDs.contains(lhs.0.id)
+                let rightProtected = protectedReserveIDs.contains(rhs.0.id)
+                if leftProtected != rightProtected { return leftProtected }
                 if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
                 return rowTitle(for: lhs.0) < rowTitle(for: rhs.0)
             }
@@ -1448,6 +1475,11 @@ public struct DashboardViewModel: Equatable, Sendable {
         }
         if let reset = snapshot.reset {
             parts.append(resetPhrase(for: reset, now: now))
+        }
+        if isConstrainedCodexReserve(snapshot), snapshot.state == .exhausted {
+            parts.append("weekly limit finished")
+        } else if isConstrainedCodexReserve(snapshot) {
+            parts.append("weekly reserve low")
         }
         parts.append(confidenceLabel(snapshot.confidence))
         parts.append(sourceLabel(snapshot.source))
@@ -1632,7 +1664,18 @@ public struct DashboardViewModel: Equatable, Sendable {
     }
 
     private static func hidesPrimaryRow(_ snapshot: UsageSnapshot) -> Bool {
-        snapshot.provider == .codex && snapshot.usagePercent != nil
+        snapshot.provider == .codex && snapshot.usagePercent != nil && !isConstrainedCodexReserve(snapshot)
+    }
+
+    private static func showsInUsableFilter(_ snapshot: UsageSnapshot) -> Bool {
+        (snapshot.state != .exhausted && snapshot.state != .unknown) || isConstrainedCodexReserve(snapshot)
+    }
+
+    private static func isConstrainedCodexReserve(_ snapshot: UsageSnapshot) -> Bool {
+        snapshot.provider == .codex
+            && codexLanePriority(snapshot) == 2
+            && snapshot.usagePercent != nil
+            && snapshot.state >= .caution
     }
 
     private static func displayPercent(for snapshot: UsageSnapshot) -> Int {

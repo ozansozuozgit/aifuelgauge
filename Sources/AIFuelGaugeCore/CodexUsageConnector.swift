@@ -35,7 +35,11 @@ public struct CodexUsageConnector: Sendable {
         let auth = try readAuth()
         do {
             let data = try await fetchUsageData(accessToken: auth.accessToken, accountID: auth.accountID)
-            if let snapshots = try? CodexUsageResponseParser(now: now).parse(data: data), !snapshots.isEmpty {
+            if let snapshots = try? CodexUsageResponseParser(now: now).parse(
+                data: data,
+                accountID: auth.accountID,
+                identityHint: auth.identityHint
+            ), !snapshots.isEmpty {
                 return snapshots
             }
         } catch {
@@ -45,7 +49,11 @@ public struct CodexUsageConnector: Sendable {
 
         let refreshedToken = try await refreshAccessToken(refreshToken: auth.refreshToken)
         let refreshedData = try await fetchUsageData(accessToken: refreshedToken, accountID: auth.accountID)
-        return try CodexUsageResponseParser(now: now).parse(data: refreshedData)
+        return try CodexUsageResponseParser(now: now).parse(
+            data: refreshedData,
+            accountID: auth.accountID,
+            identityHint: auth.identityHint
+        )
     }
 
     private func readAuth() throws -> CodexAuth {
@@ -63,7 +71,8 @@ public struct CodexUsageConnector: Sendable {
         return CodexAuth(
             accessToken: accessToken,
             refreshToken: refreshToken,
-            accountID: auth.tokens.account_id ?? ""
+            accountID: auth.tokens.account_id ?? "",
+            identityHint: Self.identityHint(fromIDToken: auth.tokens.id_token)
         )
     }
 
@@ -116,6 +125,34 @@ public struct CodexUsageConnector: Sendable {
         allowed.remove(charactersIn: ":#[]@!$&'()*+,;=")
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
+
+    private static func identityHint(fromIDToken token: String?) -> String? {
+        guard let token else { return nil }
+        let segments = token.split(separator: ".")
+        guard segments.count >= 2 else { return nil }
+        var payload = String(segments[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let padding = (4 - payload.count % 4) % 4
+        payload.append(String(repeating: "=", count: padding))
+        guard let data = Data(base64Encoded: payload),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let email = object["email"] as? String else {
+            return nil
+        }
+        return maskEmail(email)
+    }
+
+    private static func maskEmail(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let atIndex = trimmed.firstIndex(of: "@"), atIndex > trimmed.startIndex else { return nil }
+        let local = String(trimmed[..<atIndex])
+        let domain = String(trimmed[trimmed.index(after: atIndex)...])
+        guard !domain.isEmpty else { return nil }
+        let first = local.first.map(String.init) ?? ""
+        let suffix = local.count > 2 ? String(local.suffix(1)) : ""
+        return "\(first)***\(suffix)@\(domain)"
+    }
 }
 
 public struct CodexUsageResponseParser: Sendable {
@@ -125,24 +162,25 @@ public struct CodexUsageResponseParser: Sendable {
         self.now = now
     }
 
-    public func parse(data: Data) throws -> [UsageSnapshot] {
+    public func parse(data: Data, accountID: String? = nil, identityHint: String? = nil) throws -> [UsageSnapshot] {
         let response = try JSONDecoder().decode(CodexUsageResponse.self, from: data)
         let generatedAt = now()
+        let account = Self.account(plan: response.plan_type, accountID: accountID, identityHint: identityHint)
         var snapshots: [UsageSnapshot] = []
 
         if let primary = response.rate_limit?.primary_window {
-            snapshots.append(snapshot(for: primary, label: "5h", plan: response.plan_type, generatedAt: generatedAt))
+            snapshots.append(snapshot(for: primary, label: "5h", account: account, generatedAt: generatedAt))
         }
         if let secondary = response.rate_limit?.secondary_window {
-            snapshots.append(snapshot(for: secondary, label: "Weekly", plan: response.plan_type, generatedAt: generatedAt))
+            snapshots.append(snapshot(for: secondary, label: "Weekly", account: account, generatedAt: generatedAt))
         }
         for item in response.additional_rate_limits ?? [] {
             guard let prefix = Self.additionalLimitDisplayName(item.limit_name) else { continue }
             if let primary = item.rate_limit?.primary_window, Self.shouldShowAdditional(window: primary, limit: item.rate_limit) {
-                snapshots.append(snapshot(for: primary, label: [prefix, "5h"].compactMap { $0 }.joined(separator: " · "), plan: response.plan_type, generatedAt: generatedAt))
+                snapshots.append(snapshot(for: primary, label: [prefix, "5h"].compactMap { $0 }.joined(separator: " · "), account: account, generatedAt: generatedAt))
             }
             if let secondary = item.rate_limit?.secondary_window, Self.shouldShowAdditional(window: secondary, limit: item.rate_limit) {
-                snapshots.append(snapshot(for: secondary, label: [prefix, "Weekly"].compactMap { $0 }.joined(separator: " · "), plan: response.plan_type, generatedAt: generatedAt))
+                snapshots.append(snapshot(for: secondary, label: [prefix, "Weekly"].compactMap { $0 }.joined(separator: " · "), account: account, generatedAt: generatedAt))
             }
         }
 
@@ -165,7 +203,7 @@ public struct CodexUsageResponseParser: Sendable {
         return trimmed
     }
 
-    private func snapshot(for window: CodexUsageWindow, label: String, plan: String?, generatedAt: Date) -> UsageSnapshot {
+    private func snapshot(for window: CodexUsageWindow, label: String, account: UsageAccount, generatedAt: Date) -> UsageSnapshot {
         let secondsRemaining: TimeInterval
         if let resetAfterSeconds = window.reset_after_seconds {
             secondsRemaining = TimeInterval(resetAfterSeconds)
@@ -178,7 +216,7 @@ public struct CodexUsageResponseParser: Sendable {
         return UsageSnapshot(
             provider: .codex,
             source: .experimentalWebSession,
-            account: UsageAccount(identifier: "codex-account", displayName: "Codex", plan: Self.displayPlan(for: plan)),
+            account: account,
             label: label,
             used: .percent(window.used_percent),
             limit: .percent(100),
@@ -188,13 +226,27 @@ public struct CodexUsageResponseParser: Sendable {
         )
     }
 
+    private static func account(plan: String?, accountID: String?, identityHint: String?) -> UsageAccount {
+        let trimmedAccountID = accountID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedIdentityHint = identityHint?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let identifier = trimmedAccountID.isEmpty ? "codex-account" : "codex-\(stableHash(trimmedAccountID))"
+        return UsageAccount(
+            identifier: identifier,
+            displayName: "Codex",
+            plan: displayPlan(for: plan),
+            identityHint: trimmedIdentityHint.isEmpty ? nil : trimmedIdentityHint
+        )
+    }
+
     private static func displayPlan(for rawPlan: String?) -> String? {
         guard let rawPlan else { return nil }
         let normalized = rawPlan.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !normalized.isEmpty else { return nil }
         switch normalized {
-        case "pro", "prolite", "plus":
+        case "pro", "prolite":
             return "Pro"
+        case "plus":
+            return "Plus"
         case "free":
             return "Free"
         case "team", "teams":
@@ -212,12 +264,22 @@ public struct CodexUsageResponseParser: Sendable {
                 .joined(separator: " ")
         }
     }
+
+    private static func stableHash(_ value: String) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return String(hash, radix: 16)
+    }
 }
 
 private struct CodexAuth {
     let accessToken: String
     let refreshToken: String
     let accountID: String
+    let identityHint: String?
 }
 
 private struct CodexAuthFile: Decodable {
@@ -225,6 +287,7 @@ private struct CodexAuthFile: Decodable {
 }
 
 private struct CodexAuthTokens: Decodable {
+    let id_token: String?
     let access_token: String?
     let refresh_token: String?
     let account_id: String?

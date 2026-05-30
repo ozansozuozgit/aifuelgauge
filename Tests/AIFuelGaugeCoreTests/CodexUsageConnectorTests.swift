@@ -49,6 +49,47 @@ final class CodexUsageConnectorTests: XCTestCase {
         XCTAssertEqual(snapshots[0].confidence, .exact)
     }
 
+    func testParserKeepsPlusPlanDistinctFromPro() throws {
+        let data = """
+        {
+          "plan_type": "plus",
+          "rate_limit": {
+            "primary_window": {
+              "used_percent": 3,
+              "reset_after_seconds": 1200
+            }
+          }
+        }
+        """.data(using: .utf8)!
+
+        let snapshots = try CodexUsageResponseParser(now: { Date(timeIntervalSince1970: 100) }).parse(data: data)
+
+        XCTAssertEqual(snapshots.first?.account?.plan, "Plus")
+    }
+
+    func testParserKeysCodexAccountByStableAccountID() throws {
+        let data = """
+        {
+          "plan_type": "plus",
+          "rate_limit": {
+            "primary_window": {
+              "used_percent": 3,
+              "reset_after_seconds": 1200
+            }
+          }
+        }
+        """.data(using: .utf8)!
+
+        let parser = CodexUsageResponseParser(now: { Date(timeIntervalSince1970: 100) })
+        let firstAccount = try parser.parse(data: data, accountID: "acct_one", identityHint: "o***e@example.com")
+        let secondAccount = try parser.parse(data: data, accountID: "acct_two", identityHint: "t***o@example.com")
+
+        XCTAssertNotEqual(firstAccount.first?.account?.identifier, "codex-account")
+        XCTAssertNotEqual(firstAccount.first?.account?.identifier, secondAccount.first?.account?.identifier)
+        XCTAssertEqual(firstAccount.first?.account?.identityHint, "o***e@example.com")
+        XCTAssertEqual(secondAccount.first?.account?.identityHint, "t***o@example.com")
+    }
+
     func testParserKeepsActiveAdditionalModelLimitsWithReadableNames() throws {
         let data = """
         {
