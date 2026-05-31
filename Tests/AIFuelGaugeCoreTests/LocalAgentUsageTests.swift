@@ -114,7 +114,8 @@ final class LocalAgentUsageTests: XCTestCase {
         {
           "oauthAccount": {
             "emailAddress": "user@example.com",
-            "organizationType": "claude_max_20x",
+            "organizationType": "claude_max",
+            "organizationRateLimitTier": "default_claude_max_20x",
             "billingType": "stripe_subscription"
           }
         }
@@ -124,6 +125,33 @@ final class LocalAgentUsageTests: XCTestCase {
 
         XCTAssertEqual(state.displayPlan, "Max 20x")
         XCTAssertEqual(state.maskedEmail, "u***r@example.com")
+    }
+
+    func testReadsClaudeStatusLineRateLimits() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("claude-statusline.json")
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "updated_at": 1770000000,
+          "rate_limits": {
+            "five_hour": { "used_percentage": 3.5, "resets_at": 1770003600 },
+            "seven_day": { "used_percentage": 41.2, "resets_at": 1770600000 }
+          }
+        }
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let account = UsageAccount(identifier: "claude-code-local", displayName: "Claude Code", plan: "Max 5x")
+        let snapshots = ClaudeStatusLineUsageReader(fileURL: fileURL).read(account: account)
+
+        XCTAssertEqual(snapshots.map(\.label), ["5h", "Weekly"])
+        XCTAssertEqual(snapshots.map(\.provider), [.claudeCode, .claudeCode])
+        XCTAssertEqual(snapshots.map(\.confidence), [.exact, .exact])
+        XCTAssertEqual(snapshots[0].usagePercent ?? -1, 0.035, accuracy: 0.001)
+        XCTAssertEqual(snapshots[1].usagePercent ?? -1, 0.412, accuracy: 0.001)
+        XCTAssertEqual(snapshots[0].account?.plan, "Max 5x")
+        XCTAssertEqual(snapshots[0].reset, .fixed(Date(timeIntervalSince1970: 1770003600)))
     }
 
     func testParsesOpenCodeSQLiteTokenTotalsWithoutReadingMessages() throws {

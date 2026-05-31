@@ -422,6 +422,10 @@ private enum AppStoragePaths {
     static var statusURL: URL {
         appSupportDirectory.appendingPathComponent("status.json")
     }
+
+    static var claudeStatusLineURL: URL {
+        appSupportDirectory.appendingPathComponent("claude-statusline.json")
+    }
 }
 
 private extension Notification.Name {
@@ -1604,6 +1608,7 @@ private struct SettingsView: View {
     @State private var isChangingLaunchAgent = false
     @State private var detectedClaudePlan: String
     @State private var detectedClaudeAccount: String
+    @State private var claudeExactStatus: String
     @State private var claudeMessage: String
     @State private var detectedCursorPlan: String
     @State private var detectedCursorStatus: String
@@ -1638,6 +1643,7 @@ private struct SettingsView: View {
         let claudeState = ClaudeAccountStateReader().read()
         _detectedClaudePlan = State(initialValue: claudeState?.displayPlan ?? "Not found")
         _detectedClaudeAccount = State(initialValue: claudeState?.maskedEmail ?? "No account identity")
+        _claudeExactStatus = State(initialValue: ClaudeStatusLineInstaller.statusMessage())
         _claudeMessage = State(initialValue: Self.claudeDetectionMessage(claudeState))
         let cursorState = CursorAccountStateReader(
             cursorDirectory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Cursor")
@@ -1685,6 +1691,9 @@ private struct SettingsView: View {
                             claudeCodePlanLabel = detectedClaudePlan == "Not found" ? "" : detectedClaudePlan
                         }
                         .disabled(detectedClaudePlan == "Not found")
+                        Button("Enable Claude exact usage") {
+                            installClaudeStatusLine()
+                        }
                         Button(isTestingCursorUsage ? "Testing Cursor" : "Test Cursor") {
                             testCursorUsage()
                         }
@@ -1693,7 +1702,7 @@ private struct SettingsView: View {
                         Button("Refresh detected plan") {
                             refreshCursorDetection()
                         }
-                        Text("\(claudeMessage) \(cursorMessage)")
+                        Text("\(claudeMessage) \(claudeExactStatus) \(cursorMessage)")
                             .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
@@ -2109,7 +2118,18 @@ private struct SettingsView: View {
         let account = ClaudeAccountStateReader().read()
         detectedClaudePlan = account?.displayPlan ?? "Not found"
         detectedClaudeAccount = account?.maskedEmail ?? "No account identity"
+        claudeExactStatus = ClaudeStatusLineInstaller.statusMessage()
         claudeMessage = Self.claudeDetectionMessage(account)
+    }
+
+    private func installClaudeStatusLine() {
+        do {
+            let result = try ClaudeStatusLineInstaller.install(outputURL: AppStoragePaths.claudeStatusLineURL)
+            claudeExactStatus = result
+            claudeMessage = "\(Self.claudeDetectionMessage(ClaudeAccountStateReader().read())) Start or continue a Claude Code session once so rate_limits are captured."
+        } catch {
+            claudeExactStatus = "Claude exact setup failed: \(error.localizedDescription)"
+        }
     }
 
     private func refreshCursorDetection() {
@@ -2313,6 +2333,146 @@ private enum LaunchAgentManager {
         } catch {
             return false
         }
+    }
+}
+
+private enum ClaudeStatusLineInstaller {
+    private static let commandPath = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".claude/aifuelgauge-statusline.py")
+    private static let settingsURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".claude/settings.json")
+
+    static func statusMessage() -> String {
+        guard FileManager.default.fileExists(atPath: commandPath.path) else {
+            return "Claude exact usage not enabled."
+        }
+        guard FileManager.default.fileExists(atPath: AppStoragePaths.claudeStatusLineURL.path) else {
+            return "Claude exact enabled; waiting for the next Claude Code response."
+        }
+        return "Claude exact usage capture is enabled."
+    }
+
+    static func install(outputURL: URL) throws -> String {
+        try FileManager.default.createDirectory(at: commandPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        var settings = try readSettings()
+        let previousCommand = previousStatusLineCommand(from: settings)
+        let script = scriptContents(outputURL: outputURL, previousCommand: previousCommand)
+        try script.write(to: commandPath, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: commandPath.path)
+
+        settings["statusLine"] = [
+            "type": "command",
+            "command": commandPath.path,
+            "refreshInterval": 30
+        ]
+        try writeSettings(settings)
+
+        if previousCommand == nil {
+            return "Claude exact enabled; continue Claude Code once to capture rate limits."
+        }
+        return "Claude exact enabled and chained to your existing Claude statusline."
+    }
+
+    private static func previousStatusLineCommand(from settings: [String: Any]) -> String? {
+        guard let statusLine = settings["statusLine"] as? [String: Any],
+              let command = statusLine["command"] as? String,
+              !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              command != commandPath.path else {
+            return nil
+        }
+        return command
+    }
+
+    private static func readSettings() throws -> [String: Any] {
+        guard FileManager.default.fileExists(atPath: settingsURL.path) else {
+            return [:]
+        }
+        let data = try Data(contentsOf: settingsURL)
+        guard !data.isEmpty else { return [:] }
+        let object = try JSONSerialization.jsonObject(with: data)
+        return object as? [String: Any] ?? [:]
+    }
+
+    private static func writeSettings(_ settings: [String: Any]) throws {
+        try FileManager.default.createDirectory(at: settingsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: settingsURL, options: [.atomic])
+    }
+
+    private static func scriptContents(outputURL: URL, previousCommand: String?) -> String {
+        let previousJSON = previousCommand.map { jsonStringLiteral($0) } ?? "None"
+        let outputJSON = jsonStringLiteral(outputURL.path)
+        return """
+        #!/usr/bin/env python3
+        import json
+        import os
+        import subprocess
+        import sys
+        import time
+
+        OUTPUT_PATH = \(outputJSON)
+        PREVIOUS_COMMAND = \(previousJSON)
+
+        raw = sys.stdin.read()
+        try:
+            payload = json.loads(raw) if raw.strip() else {}
+        except Exception:
+            payload = {}
+
+        rate_limits = payload.get("rate_limits") or {}
+        capture = {
+            "updated_at": time.time(),
+            "session_id": payload.get("session_id"),
+            "model": payload.get("model"),
+            "rate_limits": {
+                "five_hour": rate_limits.get("five_hour"),
+                "seven_day": rate_limits.get("seven_day"),
+            },
+        }
+
+        try:
+            os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
+            tmp_path = f"{OUTPUT_PATH}.tmp.{os.getpid()}"
+            with open(tmp_path, "w", encoding="utf-8") as handle:
+                json.dump(capture, handle, separators=(",", ":"))
+            os.replace(tmp_path, OUTPUT_PATH)
+        except Exception:
+            pass
+
+        if PREVIOUS_COMMAND:
+            try:
+                result = subprocess.run(
+                    PREVIOUS_COMMAND,
+                    input=raw,
+                    text=True,
+                    shell=True,
+                    capture_output=True,
+                    timeout=2,
+                )
+                output = (result.stdout or "").rstrip("\\n")
+                if output:
+                    print(output)
+                    sys.exit(0)
+            except Exception:
+                pass
+
+        five = (rate_limits.get("five_hour") or {}).get("used_percentage")
+        seven = (rate_limits.get("seven_day") or {}).get("used_percentage")
+        parts = []
+        if isinstance(five, (int, float)):
+            parts.append(f"5h {five:.0f}%")
+        if isinstance(seven, (int, float)):
+            parts.append(f"7d {seven:.0f}%")
+        print("Claude " + " · ".join(parts) if parts else "Claude")
+        """
+    }
+
+    private static func jsonStringLiteral(_ value: String) -> String {
+        let data = (try? JSONSerialization.data(withJSONObject: [value])) ?? Data(#"[""]"#.utf8)
+        let json = String(data: data, encoding: .utf8) ?? #"[""]"#
+        return String(json.dropFirst().dropLast())
     }
 }
 

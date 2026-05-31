@@ -21,6 +21,11 @@ final class LocalUsageCollectorTests: XCTestCase {
         try """
         {"type":"assistant","message":{"usage":{"input_tokens":10,"output_tokens":3,"cache_read_input_tokens":4,"cache_creation_input_tokens":5}}}
         """.write(to: claudeDir.appendingPathComponent("session.jsonl"), atomically: true, encoding: .utf8)
+        let claudeStatusLine = home.appendingPathComponent("Library/Application Support/AI Fuel Gauge/claude-statusline.json")
+        try FileManager.default.createDirectory(at: claudeStatusLine.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {"updated_at":1770000000,"rate_limits":{"five_hour":{"used_percentage":3.0,"resets_at":1770003600},"seven_day":{"used_percentage":12.0,"resets_at":1770600000}}}
+        """.write(to: claudeStatusLine, atomically: true, encoding: .utf8)
         try """
         {"timestamp":"2026-05-26T12:10:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":66.0,"window_minutes":300,"resets_at":2600}}}}
         """.write(to: codexDir.appendingPathComponent("rollout.jsonl"), atomically: true, encoding: .utf8)
@@ -43,15 +48,19 @@ final class LocalUsageCollectorTests: XCTestCase {
         )
         let snapshots = try collector.collect()
 
-        XCTAssertEqual(snapshots.map(\.provider), [.claudeCode, .codex, .openCode, .cursor])
-        XCTAssertEqual(snapshots[0].used, .tokens(input: 10, output: 3, cacheRead: 4, cacheWrite: 5))
+        XCTAssertEqual(snapshots.map(\.provider), [.claudeCode, .claudeCode, .claudeCode, .codex, .openCode, .cursor])
+        XCTAssertEqual(snapshots[0].label, "5h")
+        XCTAssertEqual(snapshots[0].confidence, .exact)
+        XCTAssertEqual(snapshots[1].label, "Weekly")
+        XCTAssertEqual(snapshots[1].confidence, .exact)
+        XCTAssertEqual(snapshots[2].used, .tokens(input: 10, output: 3, cacheRead: 4, cacheWrite: 5))
         XCTAssertEqual(snapshots[0].account?.plan, "Free")
-        XCTAssertEqual(snapshots[1].used, .percent(66))
-        XCTAssertEqual(snapshots[2].label, "OpenCode tokens")
-        XCTAssertEqual(snapshots[2].used, .tokens(input: 11, output: 7, cacheRead: 13, cacheWrite: 17))
-        XCTAssertEqual(snapshots[2].confidence, .estimated)
-        XCTAssertEqual(snapshots[3].label, "Subscription active")
-        XCTAssertEqual(snapshots[3].account?.plan, "Pro")
-        XCTAssertTrue(snapshots[3].isSubscriptionOnly)
+        XCTAssertEqual(snapshots[3].used, .percent(66))
+        XCTAssertEqual(snapshots[4].label, "OpenCode tokens")
+        XCTAssertEqual(snapshots[4].used, .tokens(input: 11, output: 7, cacheRead: 13, cacheWrite: 17))
+        XCTAssertEqual(snapshots[4].confidence, .estimated)
+        XCTAssertEqual(snapshots[5].label, "Subscription active")
+        XCTAssertEqual(snapshots[5].account?.plan, "Pro")
+        XCTAssertTrue(snapshots[5].isSubscriptionOnly)
     }
 }

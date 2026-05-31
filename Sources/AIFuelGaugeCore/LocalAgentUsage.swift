@@ -84,6 +84,7 @@ public struct LocalAgentSourceMonitor {
     public func fingerprint() -> LocalAgentSourceFingerprint {
         LocalAgentSourceFingerprint(values: [
             "claude-projects": directoryStamp(homeDirectory.appendingPathComponent(".claude/projects"), allowedExtensions: ["jsonl"]),
+            "claude-statusline": fileStamp(homeDirectory.appendingPathComponent("Library/Application Support/AI Fuel Gauge/claude-statusline.json")),
             "codex-sessions": directoryStamp(homeDirectory.appendingPathComponent(".codex/sessions"), allowedExtensions: ["jsonl"]),
             "codex-auth": fileStamp(homeDirectory.appendingPathComponent(".codex/auth.json")),
             "cursor-state": fileStamp(homeDirectory.appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb")),
@@ -160,16 +161,26 @@ public struct LocalPlanPreferences: Equatable, Sendable {
 
 public struct ClaudeAccountState: Equatable, Sendable {
     public let organizationType: String?
+    public let organizationRateLimitTier: String?
     public let email: String?
     public let updatedAt: Date
 
-    public init(organizationType: String?, email: String?, updatedAt: Date) {
+    public init(organizationType: String?, organizationRateLimitTier: String? = nil, email: String?, updatedAt: Date) {
         self.organizationType = organizationType
+        self.organizationRateLimitTier = organizationRateLimitTier
         self.email = email
         self.updatedAt = updatedAt
     }
 
     public var displayPlan: String? {
+        let normalizedTier = organizationRateLimitTier?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        if normalizedTier.contains("max") && normalizedTier.contains("20") {
+            return "Max 20x"
+        }
+        if normalizedTier.contains("max") && normalizedTier.contains("5") {
+            return "Max 5x"
+        }
+
         guard let organizationType else { return nil }
         let normalized = organizationType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         switch normalized {
@@ -232,10 +243,11 @@ public struct ClaudeAccountStateReader {
         let updatedAt = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
         let state = ClaudeAccountState(
             organizationType: account["organizationType"] as? String,
+            organizationRateLimitTier: account["organizationRateLimitTier"] as? String,
             email: account["emailAddress"] as? String,
             updatedAt: updatedAt
         )
-        if state.organizationType == nil, state.email == nil { return nil }
+        if state.organizationType == nil, state.organizationRateLimitTier == nil, state.email == nil { return nil }
         return state
     }
 }
@@ -283,6 +295,64 @@ public struct ClaudeJSONLUsageParser {
             reset: nil,
             confidence: .estimated,
             updatedAt: latestTimestamp ?? now()
+        )
+    }
+}
+
+public struct ClaudeStatusLineUsageReader {
+    private let fileURL: URL
+    private let fileManager: FileManager
+    private let now: () -> Date
+
+    public init(
+        fileURL: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/AI Fuel Gauge/claude-statusline.json"),
+        fileManager: FileManager = .default,
+        now: @escaping () -> Date = Date.init
+    ) {
+        self.fileURL = fileURL
+        self.fileManager = fileManager
+        self.now = now
+    }
+
+    public func read(account: UsageAccount?) -> [UsageSnapshot] {
+        guard fileManager.fileExists(atPath: fileURL.path),
+              let data = try? Data(contentsOf: fileURL),
+              let payload = try? JSONDecoder().decode(ClaudeStatusLinePayload.self, from: data) else {
+            return []
+        }
+
+        let updatedAt = Date(timeIntervalSince1970: payload.updated_at)
+        let fiveHour = snapshot(
+            label: "5h",
+            window: payload.rate_limits?.five_hour,
+            account: account,
+            updatedAt: updatedAt
+        )
+        let weekly = snapshot(
+            label: "Weekly",
+            window: payload.rate_limits?.seven_day,
+            account: account,
+            updatedAt: updatedAt
+        )
+        return [fiveHour, weekly].compactMap { $0 }
+    }
+
+    private func snapshot(label: String, window: ClaudeStatusLineWindow?, account: UsageAccount?, updatedAt: Date) -> UsageSnapshot? {
+        guard let window, let usedPercentage = window.used_percentage, usedPercentage.isFinite else {
+            return nil
+        }
+        let reset = window.resets_at.map { ResetInfo.fixed(Date(timeIntervalSince1970: $0)) }
+        return UsageSnapshot(
+            provider: .claudeCode,
+            source: .localLogs,
+            account: account,
+            label: label,
+            used: .percent(min(max(usedPercentage, 0), 100)),
+            limit: .percent(100),
+            reset: reset,
+            confidence: .exact,
+            providerNote: "Captured from Claude Code statusline rate_limits; no prompt text is stored.",
+            updatedAt: updatedAt
         )
     }
 }
@@ -464,17 +534,30 @@ public struct LocalUsageCollector {
             case .claudeCode:
                 let claudeAccount = ClaudeAccountStateReader(homeDirectory: homeDirectory, fileManager: fileManager).read()
                 let plan = planPreferences.claudeCodePlan ?? claudeAccount?.displayPlan
+                let account = UsageAccount(
+                    identifier: "claude-code-local",
+                    displayName: "Claude Code",
+                    plan: plan,
+                    identityHint: claudeAccount?.maskedEmail
+                )
+                snapshots.append(contentsOf: ClaudeStatusLineUsageReader(
+                    fileURL: homeDirectory.appendingPathComponent("Library/Application Support/AI Fuel Gauge/claude-statusline.json"),
+                    fileManager: fileManager,
+                    now: now
+                ).read(account: account))
                 if let snapshot = try? ClaudeJSONLUsageParser(now: now).parse(
                     lines: readJSONLLines(recursivelyUnder: source.url),
                     label: "Claude Code",
-                    account: UsageAccount(
-                        identifier: "claude-code-local",
-                        displayName: "Claude Code",
-                        plan: plan,
-                        identityHint: claudeAccount?.maskedEmail
-                    )
+                    account: account
                 ) {
-                    snapshots.append(snapshot)
+                    let statusLineScript = homeDirectory.appendingPathComponent(".claude/aifuelgauge-statusline.py")
+                    let statusLineCapture = homeDirectory.appendingPathComponent("Library/Application Support/AI Fuel Gauge/claude-statusline.json")
+                    if fileManager.fileExists(atPath: statusLineScript.path),
+                       !fileManager.fileExists(atPath: statusLineCapture.path) {
+                        snapshots.append(snapshot.withProviderNote("Claude exact usage capture is enabled but waiting for Claude Code to run the statusline after an assistant response."))
+                    } else {
+                        snapshots.append(snapshot)
+                    }
                 }
             case .codex:
                 if let codexSnapshots = try? CodexJSONLUsageParser(now: now).parseRateLimits(lines: readJSONLLines(recursivelyUnder: source.url)) {
@@ -770,6 +853,21 @@ private struct ClaudeUsage: Decodable {
     let output_tokens: Int?
     let cache_read_input_tokens: Int?
     let cache_creation_input_tokens: Int?
+}
+
+private struct ClaudeStatusLinePayload: Decodable {
+    let updated_at: Double
+    let rate_limits: ClaudeStatusLineRateLimits?
+}
+
+private struct ClaudeStatusLineRateLimits: Decodable {
+    let five_hour: ClaudeStatusLineWindow?
+    let seven_day: ClaudeStatusLineWindow?
+}
+
+private struct ClaudeStatusLineWindow: Decodable {
+    let used_percentage: Double?
+    let resets_at: Double?
 }
 
 private struct CodexJSONLEvent: Decodable {

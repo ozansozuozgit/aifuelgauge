@@ -781,6 +781,26 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertTrue(weekly.showsInUsableFilter)
     }
 
+    func testDetectedClaudeCodeUsageStaysVisibleInUsableFilter() throws {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .claudeCode,
+                source: .localLogs,
+                account: UsageAccount(identifier: "claude-code-local", displayName: "Claude Code", plan: "Max 5x"),
+                label: "Claude Code",
+                used: .tokens(input: 1_000, output: 2_000, cacheRead: 3_000, cacheWrite: 4_000),
+                limit: nil,
+                reset: nil,
+                confidence: .estimated,
+                updatedAt: now
+            )
+        ]), now: now)
+
+        let claude = try XCTUnwrap(model.rows.first { $0.title == "Claude Code · Max 5x" })
+        XCTAssertTrue(claude.showsInUsableFilter)
+    }
+
     func testConstrainedCodexWeeklyRemainsInResetTimelineEvenWithOtherUsableResets() {
         let now = Date(timeIntervalSince1970: 100)
         let model = DashboardViewModel(summary: UsageSummary(snapshots: [

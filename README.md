@@ -70,7 +70,7 @@ The app is designed around three ideas:
 | --- | --- | --- |
 | Codex account | 5h and weekly quota windows, plan labels, model-specific caps | Exact when the local Codex account token is available |
 | Cursor account | Included usage, auto usage, API usage, spend rows, plan/status hints | Exact when local Cursor auth is available |
-| Claude Code | Local token aggregation from JSONL usage files | Estimated |
+| Claude Code | 5h and weekly quota windows via statusline capture; local token aggregation as fallback | Exact after statusline capture, estimated from JSONL fallback |
 | OpenRouter | Key usage and account credits | Exact with a saved API key |
 | OpenAI | Organization costs and completions usage | Exact with a saved Admin key |
 | OpenCode | Local SQLite token aggregation | Estimated |
@@ -153,6 +153,49 @@ Most setup happens in the popover Settings screen.
 - Choose how much detail the menu bar should show: detail, pair, sparkline,
   compact, or minimal.
 - Turn start-at-login on or off without touching the terminal.
+
+### Claude Code exact usage
+
+Claude Code has two different local signals:
+
+- Local JSONL usage files in `~/.claude/projects`, which provide token totals
+  but not official quota percentages. AI Fuel Gauge labels these rows as
+  estimated.
+- Claude Code statusline `rate_limits`, which can expose exact 5h and weekly
+  usage percentages and reset times for Pro/Max accounts after Claude Code
+  receives an assistant response.
+
+Use **Settings -> Enable Claude exact usage** to install:
+
+```text
+~/.claude/aifuelgauge-statusline.py
+```
+
+The installer updates:
+
+```text
+~/.claude/settings.json
+```
+
+and writes captured quota data to:
+
+```text
+~/Library/Application Support/AI Fuel Gauge/claude-statusline.json
+```
+
+The statusline script stores only the documented quota fields, reset times,
+session id, model name, and update timestamp. It does not store prompt text.
+
+If Claude still shows only a token row after enabling exact usage, run or
+continue a **Claude Code** session and wait for one assistant response, then
+refresh AI Fuel Gauge. Opening Claude Desktop or the Claude account Usage page
+does not trigger Claude Code statusline data.
+
+When the script is installed but no statusline payload has arrived yet, the
+Claude row remains visible as `Claude Code · Max 5x` with local token totals and
+an explanation that exact capture is waiting for Claude Code. Once the first
+payload arrives, AI Fuel Gauge adds exact `5h` and `Weekly` Claude rows with
+meters and reset times.
 
 ## Status Export
 

@@ -1444,6 +1444,8 @@ public struct DashboardViewModel: Equatable, Sendable {
             return withProviderNote("Exact from Cursor account usage. Uses the local Cursor auth token; no prompt text is read.")
         case (.codex, .localLogs, .exact):
             return withProviderNote("Fallback from local Codex session metadata. Useful when the account endpoint is unavailable, but it can lag behind Codex.")
+        case (.claudeCode, .localLogs, .exact):
+            return withProviderNote("Exact from Claude Code statusline rate-limit metadata. The app stores only percentages and reset times.")
         case (.codex, .localLogs, .unknown):
             let lastSeen = lastSeenPercent(for: snapshot).map { "Last seen \($0)% used before reset. " } ?? ""
             return "\(lastSeen)Waiting for Codex to emit a fresh \(snapshot.label) quota event; not showing expired data as current."
@@ -1668,7 +1670,9 @@ public struct DashboardViewModel: Equatable, Sendable {
     }
 
     private static func showsInUsableFilter(_ snapshot: UsageSnapshot) -> Bool {
-        (snapshot.state != .exhausted && snapshot.state != .unknown) || isConstrainedCodexReserve(snapshot)
+        (snapshot.state != .exhausted && snapshot.state != .unknown)
+            || isConstrainedCodexReserve(snapshot)
+            || isDetectedClaudeCodeUsage(snapshot)
     }
 
     private static func isConstrainedCodexReserve(_ snapshot: UsageSnapshot) -> Bool {
@@ -1676,6 +1680,13 @@ public struct DashboardViewModel: Equatable, Sendable {
             && codexLanePriority(snapshot) == 2
             && snapshot.usagePercent != nil
             && snapshot.state >= .caution
+    }
+
+    private static func isDetectedClaudeCodeUsage(_ snapshot: UsageSnapshot) -> Bool {
+        snapshot.provider == .claudeCode
+            && snapshot.source == .localLogs
+            && snapshot.confidence == .estimated
+            && snapshot.account?.plan?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
     private static func displayPercent(for snapshot: UsageSnapshot) -> Int {
