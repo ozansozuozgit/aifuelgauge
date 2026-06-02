@@ -136,3 +136,77 @@ struct StatePill: View {
         .background(FuelTheme.color(for: state).opacity(0.12), in: Capsule())
     }
 }
+
+/// In-popover focus selector ("Auto ▾" or a pinned provider). Transient — does
+/// not change the menu bar. `rows` are the focusable lanes.
+struct FocusPill: View {
+    let rows: [DashboardRow]
+    @Binding var pinnedID: String?
+
+    var body: some View {
+        Menu {
+            Button("Auto") { pinnedID = nil }
+            Divider()
+            ForEach(rows) { row in
+                Button(row.title) { pinnedID = row.id }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: pinnedID == nil ? "bolt.fill" : "pin.fill").font(.system(size: 9))
+                Text(pinnedID == nil ? "Auto" : (rows.first { $0.id == pinnedID }?.title ?? "Auto"))
+                    .font(.fuelText(11.5, weight: .semibold))
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+            }
+            .foregroundStyle(FuelTheme.text)
+            .padding(.horizontal, 9).padding(.vertical, 5)
+            .background(FuelTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: FuelTheme.radiusSM, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: FuelTheme.radiusSM, style: .continuous).strokeBorder(FuelTheme.border))
+        }
+        .menuStyle(.borderlessButton).fixedSize()
+    }
+}
+
+struct HeroFeaturedCard: View {
+    let row: DashboardRow
+    let allRows: [DashboardRow]
+    let insight: String
+    let resetCaption: String?   // e.g. "Resets in 47m"
+    @Binding var pinnedID: String?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            ArcGauge(percent: row.meterPercent ?? 0, state: row.state,
+                     value: percentText, caption: "USED")
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("TIGHTEST LANE").font(.fuelEyebrow).foregroundStyle(FuelTheme.text3)
+                    Spacer()
+                    FocusPill(rows: allRows, pinnedID: $pinnedID)
+                }
+                Text(row.title).font(.fuelText(17, weight: .bold)).foregroundStyle(FuelTheme.text)
+                Text(row.detail).font(.fuelText(12)).foregroundStyle(FuelTheme.text2)
+                if !insight.isEmpty {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "bolt.fill").font(.system(size: 10)).foregroundStyle(FuelTheme.safe)
+                        Text(insight).font(.fuelText(12, weight: .semibold)).foregroundStyle(FuelTheme.text)
+                    }
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(FuelTheme.safe.opacity(0.12), in: RoundedRectangle(cornerRadius: FuelTheme.radiusMD, style: .continuous))
+                }
+                if let resetCaption {
+                    HStack(spacing: 5) {
+                        Image(systemName: "clock").font(.system(size: 10)).foregroundStyle(FuelTheme.text3)
+                        Text(resetCaption).font(.fuelText(11.5)).foregroundStyle(FuelTheme.text2)
+                    }
+                }
+            }
+        }
+        .fuelCard(radius: FuelTheme.radiusLG, padding: 16)
+    }
+
+    private var percentText: String {
+        guard let p = row.meterPercent else { return "—" }
+        return "\(Int((p * 100).rounded()))%"
+    }
+}
