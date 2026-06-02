@@ -35,8 +35,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 500, height: 700)
-        popover.contentViewController = NSHostingController(
+        let hosting = NSHostingController(
             rootView: DashboardView(
                 controller: controller,
                 actions: DashboardActions(
@@ -54,10 +53,21 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
                     openServer: { [weak controller] server in controller?.openServer(server) },
                     copyServer: { [weak controller] server in controller?.copyServerURL(server) },
                     stopServer: { [weak controller] server in controller?.stopServer(server) },
+                    copyRow: { row in
+                        let text = row.receiptText.isEmpty ? row.value : row.receiptText
+                        copyToPasteboard(text)
+                    },
+                    openRow: { row in
+                        if let s = row.dashboardURL, let url = URL(string: s) {
+                            NSWorkspace.shared.open(url)
+                        }
+                    },
                     quit: { NSApp.terminate(nil) }
                 )
             )
         )
+        hosting.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = hosting
         appResignObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification,
             object: NSApp,
@@ -268,7 +278,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-private enum AppPreferences {
+enum AppPreferences {
     static let claudeCodePlanLabelKey = "claudeCodePlanLabel"
     static let cursorPlanOverrideKey = "cursorPlanOverride"
     static let alert50EnabledKey = "alert50Enabled"
@@ -486,7 +496,7 @@ private extension Notification.Name {
 }
 
 @MainActor
-private final class DashboardController: ObservableObject {
+final class DashboardController: ObservableObject {
     @Published private(set) var model: DashboardViewModel
     @Published private(set) var workbench: AgentWorkbenchSnapshot = .empty
     @Published private(set) var isRefreshing = false
@@ -829,7 +839,7 @@ private enum NotificationBridge {
     }
 }
 
-private struct DashboardActions {
+struct DashboardActions {
     let refresh: () -> Void
     let settings: () -> Void
     let history: () -> Void
@@ -841,315 +851,12 @@ private struct DashboardActions {
     let openServer: (LocalDevServer) -> Void
     let copyServer: (LocalDevServer) -> Void
     let stopServer: (LocalDevServer) -> Void
+    let copyRow: (DashboardRow) -> Void
+    let openRow: (DashboardRow) -> Void
     let quit: () -> Void
 }
 
-private struct DashboardView: View {
-    @ObservedObject var controller: DashboardController
-    let actions: DashboardActions
-    @State private var laneFilter: LaneFilter = .usable
-    @State private var showLaneDetails = false
-    @State private var isReorderingRows = false
-    @State private var draggingRowID: String?
-    @State private var rowFrames: [String: CGRect] = [:]
-    @State private var customLaneOrder = AppPreferences.laneOrder()
-
-    private var model: DashboardViewModel { controller.model }
-    private var usageRows: [DashboardRow] {
-        guard let gauge = model.primaryGauge,
-              !model.rows.contains(where: { $0.title == gauge.title }) else {
-            return model.rows
-        }
-        let valueSuffix = gauge.subtitle.localizedCaseInsensitiveContains("left") ? " left" : " used"
-        let primaryRow = DashboardRow(
-            id: gauge.snapshotID,
-            title: gauge.title,
-            value: "\(gauge.value)\(valueSuffix)",
-            detail: compactGaugeDetail(gauge.subtitle),
-            dashboardURL: gauge.dashboardURL,
-            explanation: gauge.explanation,
-            meterPercent: gauge.percent,
-            meterLabel: gauge.caption,
-            paceCaption: gauge.paceCaption,
-            receiptText: gauge.receiptText,
-            confidence: gauge.confidence,
-            state: gauge.state
-        )
-        return [primaryRow] + model.rows
-    }
-
-    private func compactGaugeDetail(_ subtitle: String) -> String {
-        subtitle
-            .split(separator: "·")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter {
-                $0.localizedCaseInsensitiveCompare("left") != .orderedSame
-                    && $0.localizedCaseInsensitiveCompare("used") != .orderedSame
-            }
-            .joined(separator: " · ")
-    }
-
-    private var orderedUsageRows: [DashboardRow] {
-        applyCustomLaneOrder(to: usageRows)
-    }
-
-    private var visibleRows: [DashboardRow] {
-        switch laneFilter {
-        case .usable:
-            let usable = orderedUsageRows.filter(\.showsInUsableFilter)
-            return usable.isEmpty ? orderedUsageRows : usable
-        case .all:
-            return orderedUsageRows
-        }
-    }
-
-    private func applyCustomLaneOrder(to rows: [DashboardRow]) -> [DashboardRow] {
-        guard !customLaneOrder.isEmpty else { return rows }
-        let rowsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
-        let ordered = customLaneOrder.compactMap { rowsByID[$0] }
-        let orderedIDs = Set(ordered.map(\.id))
-        return ordered + rows.filter { !orderedIDs.contains($0.id) }
-    }
-
-    private func persistLaneOrder(_ orderedIDs: [String]) {
-        let knownIDs = Set(usageRows.map(\.id))
-        let prunedIDs = orderedIDs.filter { knownIDs.contains($0) }
-        customLaneOrder = prunedIDs
-        AppPreferences.saveLaneOrder(prunedIDs)
-    }
-
-    private func moveRow(sourceID: String, beforeOrAfter targetID: String) {
-        guard sourceID != targetID else { return }
-        var orderedIDs = orderedUsageRows.map(\.id)
-        guard let sourceIndex = orderedIDs.firstIndex(of: sourceID),
-              let targetIndex = orderedIDs.firstIndex(of: targetID) else {
-            return
-        }
-        orderedIDs.move(
-            fromOffsets: IndexSet(integer: sourceIndex),
-            toOffset: targetIndex > sourceIndex ? targetIndex + 1 : targetIndex
-        )
-        persistLaneOrder(orderedIDs)
-    }
-
-    private func moveVisibleRow(_ row: DashboardRow, delta: Int) {
-        guard let index = visibleRows.firstIndex(where: { $0.id == row.id }) else { return }
-        let targetIndex = index + delta
-        guard visibleRows.indices.contains(targetIndex) else { return }
-        moveRow(sourceID: row.id, beforeOrAfter: visibleRows[targetIndex].id)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            InsightStrip(text: model.insight, state: model.state)
-            if usageRows.isEmpty {
-                UnknownGaugeView()
-                EmptySourcesView()
-            } else {
-                laneToolbar
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(visibleRows) { row in
-                            rowView(row)
-                            if row.id != visibleRows.last?.id {
-                                Divider().padding(.leading, 20).opacity(0.45)
-                            }
-                        }
-                    }
-                }
-                .coordinateSpace(name: "lane-list")
-                .onPreferenceChange(LaneFramePreferenceKey.self) { frames in
-                    rowFrames = frames
-                }
-                .frame(maxHeight: showLaneDetails ? 300 : 260)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            }
-            ResetContextStrip(items: model.resetTimeline.map {
-                ResetContextStrip.Item(eyebrow: $0.title, value: $0.value, caption: $0.detail, state: $0.state)
-            })
-            WorkbenchSection(
-                snapshot: controller.workbench,
-                openQuickRoute: actions.openQuickRoute,
-                copyQuickRoute: actions.copyQuickRoute,
-                revealSession: actions.revealSession,
-                openServer: actions.openServer,
-                copyServer: actions.copyServer,
-                stopServer: actions.stopServer
-            )
-            if !model.setupGuidance.isEmpty {
-                SetupGuidanceView(items: model.setupGuidance)
-            }
-            footer
-        }
-        .padding(16)
-        .frame(width: 500, height: 700)
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-
-    @ViewBuilder
-    private func rowView(_ row: DashboardRow) -> some View {
-        if isReorderingRows {
-            HStack(spacing: 0) {
-                VStack(spacing: 5) {
-                    Button {
-                        moveVisibleRow(row, delta: -1)
-                    } label: {
-                        Image(systemName: "chevron.up")
-                            .font(.system(size: 9, weight: .semibold))
-                            .frame(width: 17, height: 17)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(visibleRows.first?.id == row.id)
-                    .help("Move up")
-
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary.opacity(0.75))
-                        .frame(width: 18, height: 18)
-                        .help("Drag to reorder")
-
-                    Button {
-                        moveVisibleRow(row, delta: 1)
-                    } label: {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 9, weight: .semibold))
-                            .frame(width: 17, height: 17)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(visibleRows.last?.id == row.id)
-                    .help("Move down")
-                }
-                .padding(.leading, 8)
-                .padding(.trailing, 2)
-
-                SourceRowView(row: row, showsDetails: showLaneDetails)
-                    .opacity(draggingRowID == row.id ? 0.55 : 1)
-            }
-            .contentShape(Rectangle())
-            .gesture(reorderDragGesture(for: row))
-            .background(rowFrameReader(for: row.id))
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(isReorderingRows ? Color(nsColor: .selectedControlColor).opacity(draggingRowID == row.id ? 0.16 : 0.05) : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(Color.accentColor.opacity(draggingRowID == row.id ? 0.35 : 0.16), lineWidth: 1)
-            )
-        } else {
-            SourceRowView(row: row, showsDetails: showLaneDetails)
-                .background(rowFrameReader(for: row.id))
-        }
-    }
-
-    private func reorderDragGesture(for row: DashboardRow) -> some Gesture {
-        DragGesture(minimumDistance: 2, coordinateSpace: .named("lane-list"))
-            .onChanged { value in
-                draggingRowID = row.id
-                guard visibleRows.count > 1 else { return }
-                let targetY = value.location.y
-                guard let target = visibleRows
-                    .filter({ $0.id != row.id })
-                    .compactMap({ candidate -> (DashboardRow, CGFloat)? in
-                        guard let frame = rowFrames[candidate.id] else { return nil }
-                        return (candidate, abs(frame.midY - targetY))
-                    })
-                    .min(by: { $0.1 < $1.1 })?.0 else {
-                    return
-                }
-                moveRow(sourceID: row.id, beforeOrAfter: target.id)
-            }
-            .onEnded { _ in
-                draggingRowID = nil
-            }
-    }
-
-    private func rowFrameReader(for id: String) -> some View {
-        GeometryReader { proxy in
-            Color.clear.preference(
-                key: LaneFramePreferenceKey.self,
-                value: [id: proxy.frame(in: .named("lane-list"))]
-            )
-        }
-    }
-
-    private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("AI Fuel Gauge")
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                Text(model.subtitle)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            StatePill(state: model.state, label: model.statusLabel)
-        }
-    }
-
-    private var footerStatusText: String {
-        if controller.isRefreshing { return "Refreshing usage · \(model.trustDigest)" }
-        return "\(model.footerNote) · \(model.trustDigest)"
-    }
-
-    private var laneToolbar: some View {
-        HStack(spacing: 10) {
-            Text("Usage")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
-            Picker("Lane filter", selection: $laneFilter) {
-                Text("Usable").tag(LaneFilter.usable)
-                Text("All").tag(LaneFilter.all)
-            }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .frame(width: 118)
-            Text("\(visibleRows.count)")
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(.secondary.opacity(0.72))
-            Spacer()
-            Button {
-                isReorderingRows.toggle()
-            } label: {
-                Label(isReorderingRows ? "Done" : "Reorder", systemImage: "arrow.up.arrow.down")
-                    .font(.system(size: 10, weight: .semibold))
-            }
-            .controlSize(.small)
-            .help(isReorderingRows ? "Done reordering" : "Reorder rows")
-            Toggle(isOn: $showLaneDetails) {
-                Image(systemName: "text.justify.left")
-                    .font(.system(size: 10, weight: .semibold))
-            }
-            .toggleStyle(.button)
-            .controlSize(.small)
-            .help(showLaneDetails ? "Hide row details" : "Show row details")
-        }
-    }
-
-    private var footer: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(controller.refreshError ?? footerStatusText)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(controller.refreshError == nil ? Color.secondary.opacity(0.82) : Color.red)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                FooterButton(title: "Refresh", systemName: "arrow.clockwise", action: actions.refresh)
-                FooterButton(title: "Settings", systemName: "slider.horizontal.3", action: actions.settings)
-                FooterButton(title: "History", systemName: "chart.line.uptrend.xyaxis", action: actions.history)
-                FooterButton(title: "Status", systemName: "doc.on.doc", action: actions.copyStatus)
-                FooterButton(title: "Report", systemName: "doc.on.clipboard", action: actions.copyDiagnostics)
-                FooterButton(title: "Quit", systemName: "xmark", action: actions.quit)
-            }
-        }
-        .padding(.top, 1)
-    }
-}
-
-private enum LaneFilter: Hashable {
+enum LaneFilter: Hashable {
     case usable
     case all
 }
@@ -1163,7 +870,7 @@ private struct LaneFramePreferenceKey: PreferenceKey {
 }
 
 
-private struct WorkbenchSection: View {
+struct WorkbenchSection: View {
     let snapshot: AgentWorkbenchSnapshot
     let openQuickRoute: (AgentQuickRoute) -> Void
     let copyQuickRoute: (AgentQuickRoute) -> Void

@@ -243,6 +243,7 @@ struct LaneRow: View {
     let onPin: () -> Void
     let onCopy: () -> Void
     let onOpen: () -> Void
+    let onToggleDetails: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -255,6 +256,7 @@ struct LaneRow: View {
                 laneButton("pin.fill", active: isPinned, action: onPin)
                 laneButton("doc.on.doc", action: onCopy)
                 if row.dashboardURL != nil { laneButton("arrow.up.right.square", action: onOpen) }
+                laneButton(showDetails ? "chevron.up" : "chevron.down", action: onToggleDetails)
             }
             Meter(percent: row.meterPercent, state: row.state)
             if let label = row.meterLabel {
@@ -326,7 +328,7 @@ struct ActionBar: View {
     let onSettings: () -> Void
     let onHistory: () -> Void
     let onCopySnapshot: () -> Void
-    let onAbout: () -> Void
+    let onCopyDiagnostics: () -> Void
     let onQuit: () -> Void
 
     var body: some View {
@@ -345,7 +347,7 @@ struct ActionBar: View {
                 Spacer()
                 Menu {
                     Button("Copy snapshot", action: onCopySnapshot)
-                    Button("About", action: onAbout)
+                    Button("Copy diagnostics", action: onCopyDiagnostics)
                     Divider()
                     Button("Quit AI Fuel Gauge", action: onQuit)
                 } label: {
@@ -353,6 +355,161 @@ struct ActionBar: View {
                 }.menuStyle(.borderlessButton).fixedSize()
             }
             .font(.fuelText(12, weight: .semibold))
+        }
+    }
+}
+
+struct BrandMark: View {
+    var size: CGFloat = 22
+    var body: some View {
+        Image(systemName: "gauge.with.dots.needle.bottom.50percent")
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(FuelTheme.accent)
+    }
+}
+
+struct DashboardView: View {
+    @ObservedObject var controller: DashboardController
+    let actions: DashboardActions
+
+    @State private var laneFilter: LaneFilter = .usable
+    @State private var detailRowIDs: Set<String> = []
+    @State private var heroPinnedID: String?
+    @AppStorage(AppPreferences.heroLayoutKey) private var heroLayoutRaw = HeroLayout.featured.rawValue
+
+    private var model: DashboardViewModel { controller.model }
+    private var heroLayout: HeroLayout { HeroLayout(rawValue: heroLayoutRaw) ?? .featured }
+
+    private var visibleRows: [DashboardRow] {
+        switch laneFilter {
+        case .usable:
+            let usable = model.rows.filter(\.showsInUsableFilter)
+            return usable.isEmpty ? model.rows : usable
+        case .all:
+            return model.rows
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            heroSection
+            laneToolbar
+            laneList
+            ResetContextStrip(items: resetItems)
+            WorkbenchSection(
+                snapshot: controller.workbench,
+                openQuickRoute: actions.openQuickRoute,
+                copyQuickRoute: actions.copyQuickRoute,
+                revealSession: actions.revealSession,
+                openServer: actions.openServer,
+                copyServer: actions.copyServer,
+                stopServer: actions.stopServer
+            )
+            ActionBar(
+                trustTally: model.trustDigest,
+                onRefresh: actions.refresh,
+                onSettings: actions.settings,
+                onHistory: actions.history,
+                onCopySnapshot: actions.copyStatus,
+                onCopyDiagnostics: actions.copyDiagnostics,
+                onQuit: actions.quit
+            )
+        }
+        .padding(16)
+        .frame(width: 360)
+        .background(FuelTheme.surface)
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            BrandMark(size: 22)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("AI Fuel Gauge").font(.fuelText(14, weight: .bold)).foregroundStyle(FuelTheme.text)
+                Text(model.statusLabel).font(.fuelText(11.5)).foregroundStyle(FuelTheme.text3)
+            }
+            Spacer()
+            StatePill(state: model.state, label: stateLabel)
+        }
+    }
+
+    @ViewBuilder private var heroSection: some View {
+        if model.rows.isEmpty {
+            heroPlaceholder
+        } else if heroLayout == .trio {
+            HeroTrioCard(rows: HeroFocus.topLanes(model.rows, count: 3))
+        } else if let focus = HeroFocus.resolve(model.rows, pinnedID: heroPinnedID) {
+            HeroFeaturedCard(row: focus, allRows: model.rows, insight: model.insight,
+                             resetCaption: focus.meterLabel, pinnedID: $heroPinnedID)
+        } else {
+            heroPlaceholder
+        }
+    }
+
+    private var heroPlaceholder: some View {
+        Text("Estimating usage…")
+            .font(.fuelText(12)).foregroundStyle(FuelTheme.text3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fuelCard(radius: FuelTheme.radiusLG, padding: 16)
+    }
+
+    private var laneToolbar: some View {
+        HStack(spacing: 8) {
+            Text("LANES").font(.fuelEyebrow).foregroundStyle(FuelTheme.text3)
+            Picker("", selection: $laneFilter) {
+                Text("Usable").tag(LaneFilter.usable)
+                Text("All").tag(LaneFilter.all)
+            }.pickerStyle(.segmented).labelsHidden().fixedSize()
+            Text("\(visibleRows.count)").font(.fuelMono(11)).foregroundStyle(FuelTheme.text3)
+            Spacer()
+            Picker("", selection: $heroLayoutRaw) {
+                Image(systemName: "gauge.medium").tag(HeroLayout.featured.rawValue)
+                Image(systemName: "square.grid.3x1.below.line.grid.1x2").tag(HeroLayout.trio.rawValue)
+            }.pickerStyle(.segmented).labelsHidden().fixedSize()
+        }
+    }
+
+    private var laneList: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                ForEach(visibleRows) { row in
+                    LaneRow(
+                        row: row,
+                        isPinned: heroPinnedID == row.id,
+                        showDetails: detailRowIDs.contains(row.id),
+                        onPin: { heroPinnedID = (heroPinnedID == row.id) ? nil : row.id },
+                        onCopy: { actions.copyRow(row) },
+                        onOpen: { actions.openRow(row) },
+                        onToggleDetails: { toggleDetails(row.id) }
+                    )
+                    if row.id != visibleRows.last?.id {
+                        Divider().background(FuelTheme.divider).padding(.leading, 12)
+                    }
+                }
+            }
+        }
+        .frame(maxHeight: 240)
+        .background(FuelTheme.surfaceSunken, in: RoundedRectangle(cornerRadius: FuelTheme.radiusMD, style: .continuous))
+    }
+
+    private func toggleDetails(_ id: String) {
+        if detailRowIDs.contains(id) { detailRowIDs.remove(id) } else { detailRowIDs.insert(id) }
+    }
+
+    private var stateLabel: String {
+        switch model.state {
+        case .safe: return "Healthy"
+        case .caution: return "Getting tight"
+        case .critical: return "Almost out"
+        case .exhausted: return "Spent"
+        case .unknown: return "Estimating"
+        }
+    }
+
+    private var resetItems: [ResetContextStrip.Item] {
+        HeroFocus.topLanes(model.rows, count: 3).compactMap { row in
+            guard let label = row.meterLabel else { return nil }
+            return ResetContextStrip.Item(eyebrow: "RESET", value: label, caption: row.title, state: row.state)
         }
     }
 }
