@@ -266,15 +266,23 @@ public struct ClaudeJSONLUsageParser {
         var cacheRead = 0
         var cacheWrite = 0
         var foundUsage = false
+        var queuedSessionIDs = Set<String>()
+        var sawHeadlessUsage = false
         var latestTimestamp: Date?
 
         for line in lines where !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             guard let data = line.data(using: .utf8),
-                  let event = try? decoder.decode(ClaudeJSONLEvent.self, from: data),
-                  let usage = event.message?.usage else {
+                  let event = try? decoder.decode(ClaudeJSONLEvent.self, from: data) else {
                 continue
             }
+            if event.type == "queue-operation", let sessionID = event.sessionId {
+                queuedSessionIDs.insert(sessionID)
+            }
+            guard let usage = event.message?.usage else { continue }
             foundUsage = true
+            if event.entrypoint == "sdk-cli" || event.sessionId.map(queuedSessionIDs.contains) == true {
+                sawHeadlessUsage = true
+            }
             if let timestamp = LocalTimestampParser.date(from: event.timestamp), latestTimestamp.map({ timestamp > $0 }) ?? true {
                 latestTimestamp = timestamp
             }
@@ -285,15 +293,20 @@ public struct ClaudeJSONLUsageParser {
         }
 
         guard foundUsage else { throw LocalUsageParseError.noUsageFound }
+        let displayLabel = sawHeadlessUsage ? "print/headless tokens" : label
+        let providerNote = sawHeadlessUsage
+            ? "Includes Claude print/headless usage from claude -p, SDK, or Hermes-style runs. Local tokens are estimated and do not expose official 5h or weekly quota percentages."
+            : nil
         return UsageSnapshot(
             provider: .claudeCode,
             source: .localLogs,
             account: account,
-            label: label,
+            label: displayLabel,
             used: .tokens(input: input, output: output, cacheRead: cacheRead, cacheWrite: cacheWrite),
             limit: nil,
             reset: nil,
             confidence: .estimated,
+            providerNote: providerNote,
             updatedAt: latestTimestamp ?? now()
         )
     }
@@ -840,7 +853,10 @@ private struct LocalJSONLFile {
 }
 
 private struct ClaudeJSONLEvent: Decodable {
+    let type: String?
     let timestamp: String?
+    let sessionId: String?
+    let entrypoint: String?
     let message: ClaudeMessage?
 }
 

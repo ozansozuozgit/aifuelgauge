@@ -15,8 +15,20 @@ if [[ ! -d "$app_source" ]]; then
 fi
 
 mkdir -p "$install_dir" "$HOME/Library/LaunchAgents"
+launchctl bootout "gui/$(id -u)" "$plist" >/dev/null 2>&1 || true
+
+dist_executable="$repo_root/dist/$app_name/Contents/MacOS/aifuelgauge"
+ps -axo pid=,command= | while read -r pid command; do
+  if [[ "$command" == "$dist_executable"* ]]; then
+    kill "$pid" >/dev/null 2>&1 || true
+  fi
+done
+
 rm -rf "$app_dest"
 cp -R "$app_source" "$app_dest"
+if [[ "$app_source" == "$repo_root/dist/$app_name" ]]; then
+  rm -rf "$app_source"
+fi
 
 cat > "$plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -41,7 +53,6 @@ cat > "$plist" <<PLIST
 </plist>
 PLIST
 
-launchctl bootout "gui/$(id -u)" "$plist" >/dev/null 2>&1 || true
 launchctl bootstrap "gui/$(id -u)" "$plist"
 launchctl enable "gui/$(id -u)/$label"
 launchctl kickstart -k "gui/$(id -u)/$label"

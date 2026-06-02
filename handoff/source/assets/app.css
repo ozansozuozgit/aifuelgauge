@@ -1,0 +1,139 @@
+/* ============================================================
+   AI Fuel Gauge — redesign design tokens
+   Refined-native macOS: SF system type, semantic state palette,
+   a single brand accent, light + dark themes.
+   ============================================================ */
+
+:root {
+  --font-sans: -apple-system, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", "Menlo", monospace;
+
+  /* brand accent — a deep, slightly cool blue. Distinct from macOS stock
+     but still at home in the system. */
+  --accent: oklch(0.55 0.16 256);
+  --accent-hover: oklch(0.50 0.17 256);
+  --accent-soft: oklch(0.55 0.16 256 / 0.12);
+
+  /* semantic state palette (derived from the app's own RGB values, tuned) */
+  --safe:      oklch(0.66 0.15 150);
+  --caution:   oklch(0.74 0.14 80);
+  --critical:  oklch(0.64 0.18 38);
+  --exhausted: oklch(0.52 0.18 25);
+  --unknown:   oklch(0.62 0.012 260);
+
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+
+  --shadow-pop: 0 1px 1px rgba(0,0,0,0.04), 0 12px 32px -8px rgba(0,0,0,0.28), 0 2px 8px rgba(0,0,0,0.10);
+  --shadow-win: 0 1px 2px rgba(0,0,0,0.06), 0 22px 60px -12px rgba(0,0,0,0.32);
+}
+
+/* ---------- LIGHT (default) ---------- */
+:root, [data-theme="light"] {
+  --bg-canvas: #e9e9ec;
+  --bg-canvas-2: #dededf;
+
+  --surface: #fbfbfd;          /* window / popover body */
+  --surface-raised: #ffffff;   /* cards, rows */
+  --surface-sunken: #f1f1f4;   /* sidebar, sunken wells */
+  --surface-hover: #f4f4f7;
+
+  --material: rgba(250,250,252,0.78);
+
+  --text: #1c1c1e;
+  --text-2: #5f5f66;
+  --text-3: #8e8e96;
+
+  --border: rgba(0,0,0,0.09);
+  --border-strong: rgba(0,0,0,0.14);
+  --divider: rgba(0,0,0,0.065);
+
+  --field: #ffffff;
+  --field-border: rgba(0,0,0,0.14);
+
+  --track: rgba(0,0,0,0.085);
+
+  color-scheme: light;
+}
+
+/* ---------- DARK ---------- */
+[data-theme="dark"] {
+  --bg-canvas: #161618;
+  --bg-canvas-2: #0e0e10;
+
+  --surface: #1f1f22;
+  --surface-raised: #2a2a2e;
+  --surface-sunken: #161618;
+  --surface-hover: #303035;
+
+  --material: rgba(34,34,38,0.82);
+
+  --text: #f2f2f5;
+  --text-2: #9a9aa2;
+  --text-3: #6c6c74;
+
+  --border: rgba(255,255,255,0.10);
+  --border-strong: rgba(255,255,255,0.16);
+  --divider: rgba(255,255,255,0.075);
+
+  --field: #1a1a1d;
+  --field-border: rgba(255,255,255,0.16);
+
+  --track: rgba(255,255,255,0.12);
+
+  --accent: oklch(0.68 0.15 256);
+  --accent-hover: oklch(0.73 0.15 256);
+  --accent-soft: oklch(0.68 0.15 256 / 0.18);
+
+  --safe:      oklch(0.72 0.16 150);
+  --caution:   oklch(0.80 0.14 82);
+  --critical:  oklch(0.70 0.18 38);
+  --exhausted: oklch(0.62 0.19 25);
+  --unknown:   oklch(0.68 0.012 260);
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+  background: var(--bg-canvas);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button { font-family: inherit; cursor: pointer; }
+input, select { font-family: inherit; }
+
+/* state color helpers */
+.s-safe      { --st: var(--safe); }
+.s-caution   { --st: var(--caution); }
+.s-critical  { --st: var(--critical); }
+.s-exhausted { --st: var(--exhausted); }
+.s-unknown   { --st: var(--unknown); }
+
+/* utility scrollbar */
+.scroll-thin::-webkit-scrollbar { width: 9px; height: 9px; }
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.scroll-thin::-webkit-scrollbar-thumb:hover { background: var(--text-3); background-clip: padding-box; }
+.scroll-thin::-webkit-scrollbar-track { background: transparent; }
+
+@keyframes popIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sweep {
+  from { stroke-dashoffset: var(--dash-full); }
+}

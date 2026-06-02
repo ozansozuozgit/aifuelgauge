@@ -58,6 +58,8 @@ The app is designed around three ideas:
   provider does not expose a clean plan name.
 - Local 7-day trend history, sparklines, peaks, deltas, and CSV export.
 - Pace and spike warnings when recent usage makes a limit likely.
+- Agent Workbench context for recent Claude Code and Codex sessions, common
+  local agent routes, and localhost dev servers.
 - Copyable status summaries and diagnostics that avoid secrets.
 - Local `status.json` export for WidgetKit, SketchyBar, Raycast, Ubersicht, or
   any other status surface that wants a simple machine-readable snapshot.
@@ -89,6 +91,8 @@ AI Fuel Gauge is local-first.
 - Claude Code, Codex fallback, and OpenCode usage are aggregated from local
   metadata files.
 - Prompt text is not read for status summaries.
+- The Agent Workbench uses file names, modification times, paths, process names,
+  ports, and file sizes. It does not surface prompt or transcript text.
 - Copied diagnostics and `status.json` are sanitized.
 - The app does not send a central telemetry feed.
 
@@ -161,6 +165,11 @@ Claude Code has two different local signals:
 - Local JSONL usage files in `~/.claude/projects`, which provide token totals
   but not official quota percentages. AI Fuel Gauge labels these rows as
   estimated.
+- `claude -p`, SDK, queued, and Hermes-style headless runs usually land only in
+  those local JSONL files. AI Fuel Gauge labels them as
+  `print/headless tokens` when the logs identify that mode. They are useful for
+  understanding local token volume, but they are not official 5h or weekly quota
+  usage.
 - Claude Code statusline `rate_limits`, which can expose exact 5h and weekly
   usage percentages and reset times for Pro/Max accounts after Claude Code
   receives an assistant response.
@@ -208,6 +217,19 @@ Every refresh writes a sanitized machine-readable snapshot:
 It includes the menu title, state, primary lane, next resets, visible lanes,
 setup guidance, and trend samples. It does not include API keys, auth tokens,
 prompt text, or raw provider responses.
+
+## Agent Workbench
+
+The popover includes a compact local workbench beside the usage lanes:
+
+- Recent Claude Code and Codex session files, ordered by local modification time.
+- Quick routes for agent skills, plugins, config, logs, and local app state.
+- Localhost dev servers on ports 3000-9999, with open, copy URL, and stop
+  actions.
+
+This is intentionally passive. AI Fuel Gauge does not install permission hooks
+or take over agent prompts; it keeps nearby context visible so quota decisions
+are easier while the usage meter remains the main product surface.
 
 ## Development
 

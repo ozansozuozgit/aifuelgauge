@@ -801,6 +801,28 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertTrue(claude.showsInUsableFilter)
     }
 
+    func testClaudeHeadlessUsageExplainsItIsNotExactQuota() throws {
+        let now = Date(timeIntervalSince1970: 100)
+        let model = DashboardViewModel(summary: UsageSummary(snapshots: [
+            UsageSnapshot(
+                provider: .claudeCode,
+                source: .localLogs,
+                account: UsageAccount(identifier: "claude-code-local", displayName: "Claude Code", plan: "Max 5x"),
+                label: "print/headless tokens",
+                used: .tokens(input: 1_000, output: 2_000, cacheRead: 3_000, cacheWrite: 4_000),
+                limit: nil,
+                reset: nil,
+                confidence: .estimated,
+                providerNote: "Includes Claude print/headless usage from claude -p, SDK, or Hermes-style runs. Local tokens are estimated and do not expose official 5h or weekly quota percentages.",
+                updatedAt: now
+            )
+        ]), now: now)
+
+        let claude = try XCTUnwrap(model.rows.first { $0.title == "Claude Code · Max 5x · print/headless tokens" })
+        XCTAssertTrue(claude.explanation.contains("Estimated from local Claude Code usage metadata."))
+        XCTAssertTrue(claude.explanation.contains("do not expose official 5h or weekly quota percentages"))
+    }
+
     func testConstrainedCodexWeeklyRemainsInResetTimelineEvenWithOtherUsableResets() {
         let now = Date(timeIntervalSince1970: 100)
         let model = DashboardViewModel(summary: UsageSummary(snapshots: [

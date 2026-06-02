@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Darwin
 import Security
 import SwiftUI
 import UniformTypeIdentifiers
@@ -19,6 +20,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         AppPreferences.registerDefaults()
+        guard !Self.terminateDuplicateInstanceIfNeeded() else { return }
         installMainMenu()
         NotificationBridge.requestAuthorization()
 
@@ -33,8 +35,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 500, height: 700)
-        popover.contentViewController = NSHostingController(
+        let hosting = NSHostingController(
             rootView: DashboardView(
                 controller: controller,
                 actions: DashboardActions(
@@ -46,10 +47,26 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
                     },
                     copyStatus: { [weak controller] in controller?.copyStatusSnapshot() },
                     copyDiagnostics: { [weak controller] in controller?.copyDiagnostics() },
+                    openQuickRoute: { [weak controller] route in controller?.openQuickRoute(route) },
+                    copyQuickRoute: { [weak controller] route in controller?.copyQuickRoute(route) },
+                    revealSession: { [weak controller] session in controller?.revealSession(session) },
+                    openServer: { [weak controller] server in controller?.openServer(server) },
+                    stopServer: { [weak controller] server in controller?.stopServer(server) },
+                    copyRow: { row in
+                        let text = row.receiptText.isEmpty ? row.value : row.receiptText
+                        copyToPasteboard(text)
+                    },
+                    openRow: { row in
+                        if let s = row.dashboardURL, let url = URL(string: s) {
+                            NSWorkspace.shared.open(url)
+                        }
+                    },
                     quit: { NSApp.terminate(nil) }
                 )
             )
         )
+        hosting.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = hosting
         appResignObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification,
             object: NSApp,
@@ -70,7 +87,9 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem?.button else { return }
         button.title = ""
         button.attributedTitle = NSAttributedString(string: "")
-        button.image = statusItemImage(title: model.title, state: model.state, accessibilityLabel: model.statusLabel)
+        let image = statusItemImage(title: model.title, state: model.state, accessibilityLabel: model.statusLabel)
+        statusItem?.length = min(image.size.width, Self.maximumStatusItemWidth)
+        button.image = image
         button.imagePosition = .imageOnly
         button.imageScaling = .scaleNone
         button.contentTintColor = nil
@@ -78,11 +97,43 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         button.setAccessibilityLabel("AI Fuel Gauge: \(model.title). \(model.statusLabel).")
     }
 
+    private static let maximumStatusItemWidth: CGFloat = 150
+
+    private static func terminateDuplicateInstanceIfNeeded() -> Bool {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return false }
+
+        let currentProcessID = pid_t(ProcessInfo.processInfo.processIdentifier)
+        let currentBundlePath = Bundle.main.bundleURL.standardizedFileURL.path
+        let installedBundlePath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Applications/AI Fuel Gauge.app")
+            .standardizedFileURL
+            .path
+        let currentIsInstalledCopy = currentBundlePath == installedBundlePath
+        let runningCopies = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+            .filter { $0.processIdentifier != currentProcessID }
+
+        guard !runningCopies.isEmpty else { return false }
+
+        if currentIsInstalledCopy {
+            for runningCopy in runningCopies {
+                guard runningCopy.bundleURL?.standardizedFileURL.path != currentBundlePath else { continue }
+                runningCopy.terminate()
+            }
+            return false
+        }
+
+        NSApp.terminate(nil)
+        return true
+    }
+
     private func statusItemImage(title: String, state: UsageState, accessibilityLabel: String) -> NSImage {
         let font = NSFont.monospacedDigitSystemFont(ofSize: 14, weight: .medium)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineBreakMode = .byTruncatingTail
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor.black
+            .foregroundColor: NSColor.black,
+            .paragraphStyle: paragraphStyle
         ]
         let text = title as NSString
         let textSize = text.size(withAttributes: attributes)
@@ -90,7 +141,9 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         let spacing: CGFloat = 5
         let horizontalPadding: CGFloat = 2
         let height: CGFloat = 22
-        let width = ceil(horizontalPadding * 2 + iconSize.width + spacing + textSize.width)
+        let maxTextWidth = Self.maximumStatusItemWidth - horizontalPadding * 2 - iconSize.width - spacing
+        let textWidth = min(textSize.width, maxTextWidth)
+        let width = ceil(horizontalPadding * 2 + iconSize.width + spacing + textWidth)
         let image = NSImage(size: NSSize(width: width, height: height))
 
         image.lockFocus()
@@ -105,9 +158,11 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         )
         statusSymbolImage(for: state, accessibilityLabel: accessibilityLabel)?.draw(in: iconRect)
         text.draw(
-            at: NSPoint(
+            in: NSRect(
                 x: horizontalPadding + iconSize.width + spacing,
-                y: floor((height - textSize.height) / 2)
+                y: floor((height - textSize.height) / 2),
+                width: textWidth,
+                height: ceil(textSize.height)
             ),
             withAttributes: attributes
         )
@@ -222,7 +277,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-private enum AppPreferences {
+enum AppPreferences {
     static let claudeCodePlanLabelKey = "claudeCodePlanLabel"
     static let cursorPlanOverrideKey = "cursorPlanOverride"
     static let alert50EnabledKey = "alert50Enabled"
@@ -237,6 +292,7 @@ private enum AppPreferences {
     static let refreshIntervalSecondsKey = "refreshIntervalSeconds"
     static let menuBarDisplayModeKey = "menuBarDisplayMode"
     static let menuBarProviderFocusKey = "menuBarProviderFocus"
+    static let heroLayoutKey = "heroLayout"
     static let laneOrderKey = "laneOrder"
     static let openAIMonthlyBudgetUSDKey = "openAIMonthlyBudgetUSD"
     static let cursorMonthlyBudgetUSDKey = "cursorMonthlyBudgetUSD"
@@ -264,6 +320,7 @@ private enum AppPreferences {
             refreshIntervalSecondsKey: 180,
             menuBarDisplayModeKey: MenuBarDisplayMode.detailed.rawValue,
             menuBarProviderFocusKey: MenuBarProviderFocus.auto.rawValue,
+            heroLayoutKey: HeroLayout.featured.rawValue,
             laneOrderKey: [],
             openAIMonthlyBudgetUSDKey: "",
             cursorMonthlyBudgetUSDKey: "",
@@ -329,12 +386,13 @@ private enum AppPreferences {
         return MenuBarProviderFocus(rawValue: rawValue) ?? .auto
     }
 
-    static func laneOrder() -> [String] {
-        UserDefaults.standard.stringArray(forKey: laneOrderKey) ?? []
+    static var heroLayout: HeroLayout {
+        let raw = UserDefaults.standard.string(forKey: heroLayoutKey) ?? HeroLayout.featured.rawValue
+        return HeroLayout(rawValue: raw) ?? .featured
     }
 
-    static func saveLaneOrder(_ order: [String]) {
-        UserDefaults.standard.set(order, forKey: laneOrderKey)
+    static func laneOrder() -> [String] {
+        UserDefaults.standard.stringArray(forKey: laneOrderKey) ?? []
     }
 
     static func budgetPreferences() -> UsageBudgetPreferences {
@@ -368,7 +426,7 @@ private enum AppPreferences {
     }
 }
 
-private enum AlertThresholdProfile: String, CaseIterable, Identifiable {
+enum AlertThresholdProfile: String, CaseIterable, Identifiable {
     case inherit
     case early
     case standard
@@ -408,7 +466,7 @@ private enum AlertThresholdProfile: String, CaseIterable, Identifiable {
     }
 }
 
-private enum AppStoragePaths {
+enum AppStoragePaths {
     private static var appSupportDirectory: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
@@ -428,13 +486,14 @@ private enum AppStoragePaths {
     }
 }
 
-private extension Notification.Name {
+extension Notification.Name {
     static let aiFuelGaugeHistoryCleared = Notification.Name("aiFuelGaugeHistoryCleared")
 }
 
 @MainActor
-private final class DashboardController: ObservableObject {
+final class DashboardController: ObservableObject {
     @Published private(set) var model: DashboardViewModel
+    @Published private(set) var workbench: AgentWorkbenchSnapshot = .empty
     @Published private(set) var isRefreshing = false
     @Published private(set) var refreshError: String?
     private var refreshTask: Task<Void, Never>?
@@ -493,6 +552,7 @@ private final class DashboardController: ObservableObject {
                 reconciled: reconciledSummary
             )
             self.summary = reconciledSummary
+            self.workbench = result.workbench
             self.history.record(summary: reconciledSummary)
             try? self.historyStore.save(self.history)
             self.rebuildModel()
@@ -573,6 +633,31 @@ private final class DashboardController: ObservableObject {
         NSPasteboard.general.setString(snapshot, forType: .string)
     }
 
+    func openQuickRoute(_ route: AgentQuickRoute) {
+        NSWorkspace.shared.open(URL(fileURLWithPath: route.path))
+    }
+
+    func copyQuickRoute(_ route: AgentQuickRoute) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(route.path, forType: .string)
+    }
+
+    func revealSession(_ session: AgentSessionSummary) {
+        guard let transcriptPath = session.transcriptPath else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: transcriptPath)])
+    }
+
+    func openServer(_ server: LocalDevServer) {
+        guard let url = URL(string: server.url) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    func stopServer(_ server: LocalDevServer) {
+        guard server.processID > 1 else { return }
+        kill(pid_t(server.processID), SIGTERM)
+        workbench = AgentWorkbenchCollector().collect()
+    }
+
     func historyDashboard() -> UsageHistoryDashboard {
         let monitoredProviders = AppPreferences.monitoredProviders
         let visibleSummary = UsageSummary(snapshots: (summary?.snapshots ?? []).filter { monitoredProviders.contains($0.provider) })
@@ -641,11 +726,12 @@ private final class DashboardController: ObservableObject {
         NotificationBridge.deliver(crossingAlerts + staleAlerts)
     }
 
-    private static func loadUsageOffMain() async -> (summary: UsageSummary, error: String?) {
+    private static func loadUsageOffMain() async -> (summary: UsageSummary, workbench: AgentWorkbenchSnapshot, error: String?) {
         await Task.detached(priority: .userInitiated) {
             let monitoredProviders = AppPreferences.monitoredProviders
             var snapshots: [UsageSnapshot] = []
             var warnings: [String] = []
+            let workbench = AgentWorkbenchCollector().collect()
 
             do {
                 let localSnapshots = try LocalUsageCollector(planPreferences: AppPreferences.localPlanPreferences()).collect()
@@ -715,7 +801,7 @@ private final class DashboardController: ObservableObject {
             snapshots = UsageBudgetApplier.apply(preferences: AppPreferences.budgetPreferences(), to: snapshots)
 
             let summary = UsageSummary(snapshots: snapshots)
-            return (summary, warnings.isEmpty ? nil : warnings.joined(separator: " · "))
+            return (summary, workbench, warnings.isEmpty ? nil : warnings.joined(separator: " · "))
         }.value
     }
 }
@@ -743,356 +829,254 @@ private enum NotificationBridge {
     }
 }
 
-private struct DashboardActions {
+struct DashboardActions {
     let refresh: () -> Void
     let settings: () -> Void
     let history: () -> Void
     let copyStatus: () -> Void
     let copyDiagnostics: () -> Void
+    let openQuickRoute: (AgentQuickRoute) -> Void
+    let copyQuickRoute: (AgentQuickRoute) -> Void
+    let revealSession: (AgentSessionSummary) -> Void
+    let openServer: (LocalDevServer) -> Void
+    let stopServer: (LocalDevServer) -> Void
+    let copyRow: (DashboardRow) -> Void
+    let openRow: (DashboardRow) -> Void
     let quit: () -> Void
 }
 
-private struct DashboardView: View {
-    @ObservedObject var controller: DashboardController
-    let actions: DashboardActions
-    @State private var laneFilter: LaneFilter = .usable
-    @State private var showLaneDetails = false
-    @State private var isReorderingRows = false
-    @State private var draggingRowID: String?
-    @State private var rowFrames: [String: CGRect] = [:]
-    @State private var customLaneOrder = AppPreferences.laneOrder()
-
-    private var model: DashboardViewModel { controller.model }
-    private var usageRows: [DashboardRow] {
-        guard let gauge = model.primaryGauge,
-              !model.rows.contains(where: { $0.title == gauge.title }) else {
-            return model.rows
-        }
-        let valueSuffix = gauge.subtitle.localizedCaseInsensitiveContains("left") ? " left" : " used"
-        let primaryRow = DashboardRow(
-            id: gauge.snapshotID,
-            title: gauge.title,
-            value: "\(gauge.value)\(valueSuffix)",
-            detail: compactGaugeDetail(gauge.subtitle),
-            dashboardURL: gauge.dashboardURL,
-            explanation: gauge.explanation,
-            meterPercent: gauge.percent,
-            meterLabel: gauge.caption,
-            paceCaption: gauge.paceCaption,
-            receiptText: gauge.receiptText,
-            confidence: gauge.confidence,
-            state: gauge.state
-        )
-        return [primaryRow] + model.rows
-    }
-
-    private func compactGaugeDetail(_ subtitle: String) -> String {
-        subtitle
-            .split(separator: "·")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter {
-                $0.localizedCaseInsensitiveCompare("left") != .orderedSame
-                    && $0.localizedCaseInsensitiveCompare("used") != .orderedSame
-            }
-            .joined(separator: " · ")
-    }
-
-    private var orderedUsageRows: [DashboardRow] {
-        applyCustomLaneOrder(to: usageRows)
-    }
-
-    private var visibleRows: [DashboardRow] {
-        switch laneFilter {
-        case .usable:
-            let usable = orderedUsageRows.filter(\.showsInUsableFilter)
-            return usable.isEmpty ? orderedUsageRows : usable
-        case .all:
-            return orderedUsageRows
-        }
-    }
-
-    private func applyCustomLaneOrder(to rows: [DashboardRow]) -> [DashboardRow] {
-        guard !customLaneOrder.isEmpty else { return rows }
-        let rowsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
-        let ordered = customLaneOrder.compactMap { rowsByID[$0] }
-        let orderedIDs = Set(ordered.map(\.id))
-        return ordered + rows.filter { !orderedIDs.contains($0.id) }
-    }
-
-    private func persistLaneOrder(_ orderedIDs: [String]) {
-        let knownIDs = Set(usageRows.map(\.id))
-        let prunedIDs = orderedIDs.filter { knownIDs.contains($0) }
-        customLaneOrder = prunedIDs
-        AppPreferences.saveLaneOrder(prunedIDs)
-    }
-
-    private func moveRow(sourceID: String, beforeOrAfter targetID: String) {
-        guard sourceID != targetID else { return }
-        var orderedIDs = orderedUsageRows.map(\.id)
-        guard let sourceIndex = orderedIDs.firstIndex(of: sourceID),
-              let targetIndex = orderedIDs.firstIndex(of: targetID) else {
-            return
-        }
-        orderedIDs.move(
-            fromOffsets: IndexSet(integer: sourceIndex),
-            toOffset: targetIndex > sourceIndex ? targetIndex + 1 : targetIndex
-        )
-        persistLaneOrder(orderedIDs)
-    }
-
-    private func moveVisibleRow(_ row: DashboardRow, delta: Int) {
-        guard let index = visibleRows.firstIndex(where: { $0.id == row.id }) else { return }
-        let targetIndex = index + delta
-        guard visibleRows.indices.contains(targetIndex) else { return }
-        moveRow(sourceID: row.id, beforeOrAfter: visibleRows[targetIndex].id)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            InsightStrip(text: model.insight, state: model.state)
-            if usageRows.isEmpty {
-                UnknownGaugeView()
-                EmptySourcesView()
-            } else {
-                laneToolbar
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(visibleRows) { row in
-                            rowView(row)
-                            if row.id != visibleRows.last?.id {
-                                Divider().padding(.leading, 20).opacity(0.45)
-                            }
-                        }
-                    }
-                }
-                .coordinateSpace(name: "lane-list")
-                .onPreferenceChange(LaneFramePreferenceKey.self) { frames in
-                    rowFrames = frames
-                }
-                .frame(maxHeight: showLaneDetails ? 430 : 390)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            }
-            ResetContextStrip(items: model.resetTimeline)
-            if !model.setupGuidance.isEmpty {
-                SetupGuidanceView(items: model.setupGuidance)
-            }
-            footer
-        }
-        .padding(16)
-        .frame(width: 500, height: 700)
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-
-    @ViewBuilder
-    private func rowView(_ row: DashboardRow) -> some View {
-        if isReorderingRows {
-            HStack(spacing: 0) {
-                VStack(spacing: 5) {
-                    Button {
-                        moveVisibleRow(row, delta: -1)
-                    } label: {
-                        Image(systemName: "chevron.up")
-                            .font(.system(size: 9, weight: .semibold))
-                            .frame(width: 17, height: 17)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(visibleRows.first?.id == row.id)
-                    .help("Move up")
-
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary.opacity(0.75))
-                        .frame(width: 18, height: 18)
-                        .help("Drag to reorder")
-
-                    Button {
-                        moveVisibleRow(row, delta: 1)
-                    } label: {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 9, weight: .semibold))
-                            .frame(width: 17, height: 17)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(visibleRows.last?.id == row.id)
-                    .help("Move down")
-                }
-                .padding(.leading, 8)
-                .padding(.trailing, 2)
-
-                SourceRowView(row: row, showsDetails: showLaneDetails)
-                    .opacity(draggingRowID == row.id ? 0.55 : 1)
-            }
-            .contentShape(Rectangle())
-            .gesture(reorderDragGesture(for: row))
-            .background(rowFrameReader(for: row.id))
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(isReorderingRows ? Color(nsColor: .selectedControlColor).opacity(draggingRowID == row.id ? 0.16 : 0.05) : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(Color.accentColor.opacity(draggingRowID == row.id ? 0.35 : 0.16), lineWidth: 1)
-            )
-        } else {
-            SourceRowView(row: row, showsDetails: showLaneDetails)
-                .background(rowFrameReader(for: row.id))
-        }
-    }
-
-    private func reorderDragGesture(for row: DashboardRow) -> some Gesture {
-        DragGesture(minimumDistance: 2, coordinateSpace: .named("lane-list"))
-            .onChanged { value in
-                draggingRowID = row.id
-                guard visibleRows.count > 1 else { return }
-                let targetY = value.location.y
-                guard let target = visibleRows
-                    .filter({ $0.id != row.id })
-                    .compactMap({ candidate -> (DashboardRow, CGFloat)? in
-                        guard let frame = rowFrames[candidate.id] else { return nil }
-                        return (candidate, abs(frame.midY - targetY))
-                    })
-                    .min(by: { $0.1 < $1.1 })?.0 else {
-                    return
-                }
-                moveRow(sourceID: row.id, beforeOrAfter: target.id)
-            }
-            .onEnded { _ in
-                draggingRowID = nil
-            }
-    }
-
-    private func rowFrameReader(for id: String) -> some View {
-        GeometryReader { proxy in
-            Color.clear.preference(
-                key: LaneFramePreferenceKey.self,
-                value: [id: proxy.frame(in: .named("lane-list"))]
-            )
-        }
-    }
-
-    private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("AI Fuel Gauge")
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                Text(model.subtitle)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            StatePill(state: model.state, label: model.statusLabel)
-        }
-    }
-
-    private var footerStatusText: String {
-        if controller.isRefreshing { return "Refreshing usage · \(model.trustDigest)" }
-        return "\(model.footerNote) · \(model.trustDigest)"
-    }
-
-    private var laneToolbar: some View {
-        HStack(spacing: 10) {
-            Text("Usage")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
-            Picker("Lane filter", selection: $laneFilter) {
-                Text("Usable").tag(LaneFilter.usable)
-                Text("All").tag(LaneFilter.all)
-            }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .frame(width: 118)
-            Text("\(visibleRows.count)")
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(.secondary.opacity(0.72))
-            Spacer()
-            Button {
-                isReorderingRows.toggle()
-            } label: {
-                Label(isReorderingRows ? "Done" : "Reorder", systemImage: "arrow.up.arrow.down")
-                    .font(.system(size: 10, weight: .semibold))
-            }
-            .controlSize(.small)
-            .help(isReorderingRows ? "Done reordering" : "Reorder rows")
-            Toggle(isOn: $showLaneDetails) {
-                Image(systemName: "text.justify.left")
-                    .font(.system(size: 10, weight: .semibold))
-            }
-            .toggleStyle(.button)
-            .controlSize(.small)
-            .help(showLaneDetails ? "Hide row details" : "Show row details")
-        }
-    }
-
-    private var footer: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(controller.refreshError ?? footerStatusText)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(controller.refreshError == nil ? Color.secondary.opacity(0.82) : Color.red)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                FooterButton(title: "Refresh", systemName: "arrow.clockwise", action: actions.refresh)
-                FooterButton(title: "Settings", systemName: "slider.horizontal.3", action: actions.settings)
-                FooterButton(title: "History", systemName: "chart.line.uptrend.xyaxis", action: actions.history)
-                FooterButton(title: "Status", systemName: "doc.on.doc", action: actions.copyStatus)
-                FooterButton(title: "Report", systemName: "doc.on.clipboard", action: actions.copyDiagnostics)
-                FooterButton(title: "Quit", systemName: "xmark", action: actions.quit)
-            }
-        }
-        .padding(.top, 1)
-    }
-}
-
-private enum LaneFilter: Hashable {
+enum LaneFilter: Hashable {
     case usable
     case all
 }
 
-private struct LaneFramePreferenceKey: PreferenceKey {
-    static let defaultValue: [String: CGRect] = [:]
+struct WorkbenchSection: View {
+    let snapshot: AgentWorkbenchSnapshot
+    let openQuickRoute: (AgentQuickRoute) -> Void
+    let copyQuickRoute: (AgentQuickRoute) -> Void
+    let revealSession: (AgentSessionSummary) -> Void
+    let openServer: (LocalDevServer) -> Void
+    let stopServer: (LocalDevServer) -> Void
 
-    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, newValue in newValue })
+    @State private var isExpanded: Bool = false
+
+    private var existingRoutes: [AgentQuickRoute] {
+        snapshot.routes.filter(\.exists)
+    }
+
+    var body: some View {
+        if !snapshot.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                // Header — tappable collapse toggle
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) { isExpanded.toggle() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "terminal")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(FuelTheme.text2)
+                        Text("Workbench")
+                            .font(.fuelText(13, weight: .semibold))
+                            .foregroundStyle(FuelTheme.text)
+                        Text(summaryLabel)
+                            .font(.fuelText(11.5))
+                            .foregroundStyle(FuelTheme.text3)
+                        Spacer(minLength: 0)
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(FuelTheme.text3)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if isExpanded {
+                    // Divider
+                    Rectangle()
+                        .fill(FuelTheme.divider)
+                        .frame(height: 1)
+                        .padding(.horizontal, 12)
+
+                    // Two-column grid: SESSIONS | DEV SERVERS (routes nested)
+                    HStack(alignment: .top, spacing: 14) {
+                        if !snapshot.sessions.isEmpty {
+                            workbenchGroup(title: "SESSIONS") {
+                                ForEach(snapshot.sessions.prefix(3)) { session in
+                                    WorkbenchSessionRow(session: session, reveal: { revealSession(session) })
+                                }
+                            }
+                        }
+
+                        if !snapshot.devServers.isEmpty || !existingRoutes.isEmpty {
+                            workbenchGroup(title: "DEV SERVERS") {
+                                ForEach(snapshot.devServers.prefix(3)) { server in
+                                    WorkbenchServerRow(
+                                        server: server,
+                                        open: { openServer(server) },
+                                        stop: { stopServer(server) }
+                                    )
+                                }
+                                if !existingRoutes.isEmpty {
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        Text("ROUTES")
+                                            .font(.fuelEyebrow)
+                                            .foregroundStyle(FuelTheme.text3)
+                                            .padding(.top, snapshot.devServers.isEmpty ? 0 : 6)
+                                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 82), spacing: 4)], alignment: .leading, spacing: 4) {
+                                            ForEach(existingRoutes.prefix(6)) { route in
+                                                WorkbenchRouteButton(
+                                                    route: route,
+                                                    open: { openQuickRoute(route) },
+                                                    copy: { copyQuickRoute(route) }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+                    .padding(.bottom, 12)
+                }
+            }
+            .background(FuelTheme.surfaceSunken, in: RoundedRectangle(cornerRadius: FuelTheme.radiusMD, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: FuelTheme.radiusMD, style: .continuous)
+                    .strokeBorder(FuelTheme.border, lineWidth: 1)
+            )
+        }
+    }
+
+    private var summaryLabel: String {
+        let parts = [
+            snapshot.sessions.isEmpty ? nil : "\(snapshot.sessions.count) sessions",
+            snapshot.devServers.isEmpty ? nil : "\(snapshot.devServers.count) servers",
+            existingRoutes.isEmpty ? nil : "\(existingRoutes.count) routes"
+        ].compactMap { $0 }
+        return parts.joined(separator: " · ")
+    }
+
+    private func workbenchGroup<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.fuelEyebrow)
+                .foregroundStyle(FuelTheme.text3)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 
-private struct ResetContextStrip: View {
-    let items: [DashboardResetItem]
+private struct WorkbenchSessionRow: View {
+    let session: AgentSessionSummary
+    let reveal: () -> Void
 
     var body: some View {
-        if !items.isEmpty {
+        Button(action: reveal) {
             HStack(spacing: 7) {
-                ForEach(Array(items.prefix(3).enumerated()), id: \.element.id) { index, item in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(index == 0 ? "Next reset" : "Reset")
-                            .font(.system(size: 8, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.secondary.opacity(0.72))
-                            .textCase(.uppercase)
-                        Text(item.value)
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .monospacedDigit()
-                            .lineLimit(1)
-                            .foregroundStyle(color(for: item.state))
-                        Text(item.title)
-                            .font(.system(size: 9, weight: .semibold))
-                            .lineLimit(1)
-                            .foregroundStyle(.primary.opacity(0.80))
-                        Text(item.detail)
-                            .font(.system(size: 8, weight: .medium))
-                            .lineLimit(1)
-                            .foregroundStyle(.secondary.opacity(0.82))
+                providerBadge(session.provider.shortName)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(session.project)
+                        .font(.fuelText(11.5, weight: .semibold))
+                        .foregroundStyle(FuelTheme.text)
+                        .lineLimit(1)
+                    HStack(spacing: 3) {
+                        Text(session.status)
+                            .foregroundStyle(session.status.lowercased() == "active" ? FuelTheme.safe : FuelTheme.text3)
+                        Text("· \(session.detail)")
+                            .foregroundStyle(FuelTheme.text3)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 7)
-                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.38), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .font(.fuelText(10))
+                    .lineLimit(1)
                 }
+                Spacer(minLength: 0)
             }
-            .accessibilityLabel(items.map { "\($0.title) resets in \($0.value)" }.joined(separator: ", "))
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .help("Reveal session log")
+    }
+
+    private func providerBadge(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .foregroundStyle(FuelTheme.text2)
+            .frame(width: 26, height: 17)
+            .background(FuelTheme.track, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+    }
+}
+
+private struct WorkbenchServerRow: View {
+    let server: LocalDevServer
+    let open: () -> Void
+    let stop: () -> Void
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Button(action: open) {
+                HStack(spacing: 6) {
+                    Text(":\(server.port)")
+                        .font(.fuelMono(11.5))
+                        .foregroundStyle(FuelTheme.accent)
+                    Text(server.command)
+                        .font(.fuelText(11))
+                        .foregroundStyle(FuelTheme.text2)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open \(server.url)")
+
+            Button(action: open) {
+                Image(systemName: "arrow.up.forward.square")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(FuelTheme.text3)
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
+            .help("Open \(server.url)")
+
+            Button(action: stop) {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(FuelTheme.text3)
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
+            .help("Stop process \(server.processID)")
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct WorkbenchRouteButton: View {
+    let route: AgentQuickRoute
+    let open: () -> Void
+    let copy: () -> Void
+
+    var body: some View {
+        Menu {
+            Button("Open", action: open)
+            Button("Copy path", action: copy)
+        } label: {
+            Text(route.title)
+                .font(.fuelText(10.5, weight: .medium))
+                .foregroundStyle(FuelTheme.text2)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(FuelTheme.track, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .help(route.path)
     }
 }
 
@@ -1143,284 +1127,6 @@ private struct SetupGuidanceView: View {
     }
 }
 
-private struct InsightStrip: View {
-    let text: String
-    let state: UsageState
-
-    var body: some View {
-        HStack(spacing: 9) {
-            Image(systemName: iconName)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(color(for: state))
-                .frame(width: 18)
-            Text(text)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.primary.opacity(0.86))
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 9)
-        .background(color(for: state).opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(color(for: state).opacity(0.20), lineWidth: 1)
-        )
-    }
-
-    private var iconName: String {
-        switch state {
-        case .safe: "bolt.fill"
-        case .caution: "speedometer"
-        case .critical, .exhausted: "exclamationmark.triangle.fill"
-        case .unknown: "questionmark.circle.fill"
-        }
-    }
-}
-
-private struct UnknownGaugeView: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Connect a quota source")
-                .font(.system(size: 12, weight: .semibold))
-            Text("Local logs are visible. Exact limits need a provider API key or a tool that exposes rate-limit metadata.")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.70), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-}
-
-private struct EmptySourcesView: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text("No live sources yet")
-                .font(.system(size: 12, weight: .semibold))
-            Text("Open Settings to add OpenRouter, or use Claude Code/Codex locally and refresh.")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.70), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-}
-
-private struct SourceRowView: View {
-    let row: DashboardRow
-    let showsDetails: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 9) {
-                Circle()
-                    .fill(color(for: row.state))
-                    .frame(width: 7, height: 7)
-                    .overlay(Circle().stroke(.white.opacity(0.35), lineWidth: 0.5))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(row.title)
-                        .font(.system(size: 12, weight: .semibold))
-                        .lineLimit(1)
-                    Text(row.detail)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(showsDetails ? 2 : 1)
-                }
-                Spacer(minLength: 8)
-                Text(row.value)
-                    .font(.system(size: 11, weight: .semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(row.state == .unknown ? .secondary : .primary)
-                    .lineLimit(1)
-                Button {
-                    copyToPasteboard(row.receiptText)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16, height: 16)
-                }
-                .buttonStyle(.plain)
-                .help("Copy lane receipt")
-                if let dashboardURL = row.dashboardURL, let url = URL(string: dashboardURL) {
-                    Button {
-                        NSWorkspace.shared.open(url)
-                    } label: {
-                        Image(systemName: "arrow.up.forward.square")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 16, height: 16)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Open provider dashboard")
-                }
-            }
-            if let percent = row.meterPercent {
-                MiniMeter(
-                    percent: percent,
-                    label: meterLabel(for: row),
-                    accessibilityLabel: row.meterLabel ?? row.value,
-                    state: row.state
-                )
-                    .padding(.leading, 16)
-            }
-            if showsDetails, row.trendPercents.count >= 2 {
-                UsageSparkline(samples: row.trendPercents, state: row.state)
-                    .frame(height: 18)
-                    .padding(.leading, 16)
-                    .accessibilityLabel("Recent usage trend")
-                if let trendCaption = row.trendCaption {
-                    Text(trendCaption)
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary.opacity(0.72))
-                        .padding(.leading, 16)
-                }
-            }
-            if let paceCaption = row.paceCaption, showsDetails {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: paceCaption.localizedCaseInsensitiveContains("warning") ? "speedometer" : "checkmark.circle.fill")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(paceCaption.localizedCaseInsensitiveContains("warning") ? Color.orange : color(for: row.state).opacity(0.82))
-                        .frame(width: 10)
-                    Text(paceCaption)
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary.opacity(0.84))
-                        .lineLimit(2)
-                }
-                .padding(.leading, 16)
-            }
-            if showsDetails, !row.explanation.isEmpty {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: row.confidence == .exact ? "checkmark.seal.fill" : "info.circle.fill")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(color(for: row.state).opacity(row.confidence == .unknown ? 0.65 : 0.95))
-                        .frame(width: 10)
-                    Text(row.explanation)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary.opacity(0.82))
-                        .lineLimit(2)
-                }
-                .padding(.leading, 16)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 10)
-        .frame(minHeight: showsDetails ? nil : 76, alignment: .topLeading)
-    }
-
-    private func meterLabel(for row: DashboardRow) -> String? {
-        guard let label = row.meterLabel?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty else {
-            return nil
-        }
-        return label.localizedCaseInsensitiveCompare(row.value.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
-            ? nil
-            : label
-    }
-}
-
-private struct UsageSparkline: View {
-    let samples: [Double]
-    let state: UsageState
-
-    var body: some View {
-        GeometryReader { proxy in
-            let clamped = samples.map { min(max($0, 0), 1) }
-            Path { path in
-                guard clamped.count >= 2, proxy.size.width > 0, proxy.size.height > 0 else { return }
-                let step = proxy.size.width / CGFloat(clamped.count - 1)
-                for (index, sample) in clamped.enumerated() {
-                    let x = CGFloat(index) * step
-                    let y = proxy.size.height - (CGFloat(sample) * proxy.size.height)
-                    if index == 0 {
-                        path.move(to: CGPoint(x: x, y: y))
-                    } else {
-                        path.addLine(to: CGPoint(x: x, y: y))
-                    }
-                }
-            }
-            .stroke(color(for: state).opacity(0.78), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
-
-            Path { path in
-                let y = proxy.size.height * 0.25
-                path.move(to: CGPoint(x: 0, y: y))
-                path.addLine(to: CGPoint(x: proxy.size.width, y: y))
-            }
-            .stroke(Color.secondary.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
-        }
-    }
-}
-
-private struct MiniMeter: View {
-    let percent: Double
-    let label: String?
-    let accessibilityLabel: String
-    let state: UsageState
-
-    var body: some View {
-        HStack(spacing: 8) {
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.quaternary)
-                    Capsule()
-                        .fill(color(for: state).opacity(0.88))
-                        .frame(width: max(5, proxy.size.width * min(max(percent, 0), 1)))
-                }
-            }
-            .frame(height: 5)
-            if let label {
-                Text(label)
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(color(for: state))
-                    .lineLimit(1)
-            }
-        }
-        .accessibilityLabel(accessibilityLabel)
-    }
-}
-
-private struct StatePill: View {
-    let state: UsageState
-    let label: String
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Circle()
-                .fill(color(for: state))
-                .frame(width: 6, height: 6)
-            Text(label)
-        }
-        .font(.system(size: 10, weight: .semibold, design: .rounded))
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
-        .background(color(for: state).opacity(0.13), in: Capsule())
-        .overlay(Capsule().stroke(.white.opacity(0.22), lineWidth: 1))
-    }
-}
-
-private struct FooterButton: View {
-    let title: String
-    let systemName: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 11, weight: .semibold))
-                .frame(width: 28, height: 28)
-                .contentShape(Capsule())
-            .background(.quaternary, in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .help(title)
-        .accessibilityLabel(title)
-    }
-}
-
 @MainActor
 private final class HistoryWindowController {
     private var window: NSWindow?
@@ -1454,17 +1160,18 @@ private struct HistoryWindowView: View {
     @State private var copyMessage = "CSV includes lane IDs, timestamps, and percentages only."
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(dashboard.title)
-                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .font(.fuelText(18, weight: .bold))
+                        .foregroundStyle(FuelTheme.text)
                     Text(dashboard.subtitle)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .font(.fuelText(11))
+                        .foregroundStyle(FuelTheme.text2)
                     Text(copyMessage)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary.opacity(0.75))
+                        .font(.fuelText(9))
+                        .foregroundStyle(FuelTheme.text3)
                 }
                 Spacer()
                 Button {
@@ -1480,15 +1187,15 @@ private struct HistoryWindowView: View {
             if dashboard.items.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("No comparable history yet")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.fuelText(13, weight: .semibold))
+                        .foregroundStyle(FuelTheme.text)
                     Text("History appears after a few refreshes from sources with known limits. It stores lane IDs, timestamps, and percentages only.")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .font(.fuelText(11))
+                        .foregroundStyle(FuelTheme.text2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .fuelCard(radius: FuelTheme.radiusMD, padding: 14)
                 Spacer()
             } else {
                 ScrollView {
@@ -1503,7 +1210,7 @@ private struct HistoryWindowView: View {
         }
         .padding(18)
         .frame(minWidth: 520, minHeight: 420)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(FuelTheme.surface)
     }
 
     private func copyCSV() {
@@ -1520,48 +1227,58 @@ private struct HistoryLaneCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Circle()
-                    .fill(color(for: item.state))
+                    .fill(FuelTheme.color(for: item.state))
                     .frame(width: 8, height: 8)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.fuelText(13, weight: .semibold))
+                        .foregroundStyle(FuelTheme.text)
                         .lineLimit(1)
                     Text(item.detail)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .font(.fuelText(10))
+                        .foregroundStyle(FuelTheme.text3)
                 }
                 Spacer()
                 Text(item.latestValue)
-                    .font(.system(size: 22, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(color(for: item.state))
+                    .font(.fuelMono(22, weight: .semibold))
+                    .foregroundStyle(FuelTheme.color(for: item.state))
             }
 
-            UsageSparkline(samples: item.samples, state: item.state)
+            Sparkline(points: item.samples, state: item.state)
                 .frame(height: 34)
                 .accessibilityLabel("\(item.title) history trend")
 
+            Divider()
+                .background(FuelTheme.divider)
+
             HStack(spacing: 8) {
-                HistoryMetricPill(text: item.peakValue)
-                HistoryMetricPill(text: item.deltaValue)
+                HistoryMetricPill(label: "peak", value: item.peakValue, state: item.state)
+                HistoryMetricPill(label: "delta", value: item.deltaValue, state: item.state)
                 Spacer()
             }
         }
-        .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .fuelCard(radius: FuelTheme.radiusMD, padding: 12)
     }
 }
 
 private struct HistoryMetricPill: View {
-    let text: String
+    let label: String
+    let value: String
+    let state: UsageState
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.quaternary, in: Capsule())
+        HStack(spacing: 4) {
+            Text(value)
+                .font(.fuelMono(10))
+                .foregroundStyle(FuelTheme.color(for: state))
+            Text(label)
+                .font(.fuelEyebrow)
+                .foregroundStyle(FuelTheme.text3)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(FuelTheme.surfaceSunken, in: Capsule())
+        .overlay(Capsule().strokeBorder(FuelTheme.border.opacity(0.5)))
     }
 }
 
@@ -1577,7 +1294,7 @@ private final class SettingsWindowController {
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 540, height: 760),
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 600),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -1592,678 +1309,7 @@ private final class SettingsWindowController {
     }
 }
 
-private struct SettingsView: View {
-    @State private var openRouterKey: String
-    @State private var openAIAdminKey: String
-    @State private var message: String = "Stored in macOS Keychain. Not synced."
-    @State private var openAIMessage: String = "Stored in macOS Keychain. Admin key is used only for OpenAI usage/cost APIs."
-    @State private var isTestingOpenRouterKey = false
-    @State private var isTestingOpenAIKey = false
-    @State private var cursorMessage: String
-    @State private var isTestingCursorUsage = false
-    @State private var historyMessage: String = "History stores only lane IDs, timestamps, and percentages."
-    @State private var maintenanceMessage: String = "Use Releases for signed zips, or copy the Homebrew command for terminal updates."
-    @State private var launchAgentMessage: String
-    @State private var isCheckingForUpdates = false
-    @State private var isChangingLaunchAgent = false
-    @State private var detectedClaudePlan: String
-    @State private var detectedClaudeAccount: String
-    @State private var claudeExactStatus: String
-    @State private var claudeMessage: String
-    @State private var detectedCursorPlan: String
-    @State private var detectedCursorStatus: String
-    @State private var detectedCursorAccount: String
-    @AppStorage(AppPreferences.claudeCodePlanLabelKey) private var claudeCodePlanLabel = ""
-    @AppStorage(AppPreferences.cursorPlanOverrideKey) private var cursorPlanOverride = ""
-    @AppStorage(AppPreferences.alert50EnabledKey) private var alert50Enabled = false
-    @AppStorage(AppPreferences.alert75EnabledKey) private var alert75Enabled = true
-    @AppStorage(AppPreferences.alert90EnabledKey) private var alert90Enabled = true
-    @AppStorage(AppPreferences.alert100EnabledKey) private var alert100Enabled = true
-    @AppStorage(AppPreferences.codexAlertProfileKey) private var codexAlertProfile = AlertThresholdProfile.inherit.rawValue
-    @AppStorage(AppPreferences.cursorAlertProfileKey) private var cursorAlertProfile = AlertThresholdProfile.inherit.rawValue
-    @AppStorage(AppPreferences.openRouterAlertProfileKey) private var openRouterAlertProfile = AlertThresholdProfile.inherit.rawValue
-    @AppStorage(AppPreferences.claudeCodeAlertProfileKey) private var claudeCodeAlertProfile = AlertThresholdProfile.inherit.rawValue
-    @AppStorage(AppPreferences.staleWarningsEnabledKey) private var staleWarningsEnabled = true
-    @AppStorage(AppPreferences.refreshIntervalSecondsKey) private var refreshIntervalSeconds = 180
-    @AppStorage(AppPreferences.menuBarDisplayModeKey) private var menuBarDisplayMode = MenuBarDisplayMode.detailed.rawValue
-    @AppStorage(AppPreferences.menuBarProviderFocusKey) private var menuBarProviderFocus = MenuBarProviderFocus.auto.rawValue
-    @AppStorage(AppPreferences.openAIMonthlyBudgetUSDKey) private var openAIMonthlyBudgetUSD = ""
-    @AppStorage(AppPreferences.cursorMonthlyBudgetUSDKey) private var cursorMonthlyBudgetUSD = ""
-    @AppStorage(AppPreferences.openRouterMonthlyBudgetCreditsKey) private var openRouterMonthlyBudgetCredits = ""
-    @AppStorage(AppPreferences.monitorClaudeCodeEnabledKey) private var monitorClaudeCodeEnabled = true
-    @AppStorage(AppPreferences.monitorCodexEnabledKey) private var monitorCodexEnabled = true
-    @AppStorage(AppPreferences.monitorCursorEnabledKey) private var monitorCursorEnabled = true
-    @AppStorage(AppPreferences.monitorOpenCodeEnabledKey) private var monitorOpenCodeEnabled = true
-    @AppStorage(AppPreferences.monitorOpenRouterEnabledKey) private var monitorOpenRouterEnabled = true
-    @AppStorage(AppPreferences.monitorOpenAIEnabledKey) private var monitorOpenAIEnabled = true
-
-    init() {
-        _openRouterKey = State(initialValue: KeychainStore.readOpenRouterKey() ?? "")
-        _openAIAdminKey = State(initialValue: KeychainStore.readOpenAIAdminKey() ?? "")
-        let claudeState = ClaudeAccountStateReader().read()
-        _detectedClaudePlan = State(initialValue: claudeState?.displayPlan ?? "Not found")
-        _detectedClaudeAccount = State(initialValue: claudeState?.maskedEmail ?? "No account identity")
-        _claudeExactStatus = State(initialValue: ClaudeStatusLineInstaller.statusMessage())
-        _claudeMessage = State(initialValue: Self.claudeDetectionMessage(claudeState))
-        let cursorState = CursorAccountStateReader(
-            cursorDirectory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Cursor")
-        ).read()
-        _detectedCursorPlan = State(initialValue: cursorState?.displayPlan ?? "Not found")
-        _detectedCursorStatus = State(initialValue: cursorState?.displayStatus ?? "No local account status")
-        _detectedCursorAccount = State(initialValue: cursorState?.maskedEmail ?? "No account identity")
-        let cursorMessage = cursorState
-            .map { state in
-                "Detected \(state.displayPlan ?? "plan unknown") · \(state.displayStatus ?? "status unknown") · \(state.maskedEmail ?? "account hidden"). Test for exact live usage."
-            } ?? "Cursor account not detected yet. Open Cursor while signed in, then test again."
-        _cursorMessage = State(initialValue: cursorMessage)
-        _launchAgentMessage = State(initialValue: LaunchAgentManager.statusMessage())
-    }
-
-    private static func claudeDetectionMessage(_ state: ClaudeAccountState?) -> String {
-        guard let state else {
-            return "Claude account metadata not detected. Run Claude Code once, then refresh."
-        }
-        return "Detected \(state.displayPlan ?? "plan unknown") · \(state.maskedEmail ?? "account hidden") from ~/.claude.json."
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Provider keys")
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                    Text("Local-first sources stay automatic. Add keys only for providers that expose official usage metadata.")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-
-                SettingsPanel {
-                    Text("Plan labels")
-                        .font(.system(size: 11, weight: .semibold))
-                    EditablePlanRow(provider: "Codex", value: "Auto from account", detail: "Exact plan and quota from ~/.codex/auth.json when available.")
-                    EditableTextPlanRow(provider: "Claude Code", text: $claudeCodePlanLabel, placeholder: detectedClaudePlan, detail: "Auto-detected: \(detectedClaudePlan) · \(detectedClaudeAccount). Override only if needed.")
-                    EditableTextPlanRow(provider: "Cursor", text: $cursorPlanOverride, placeholder: detectedCursorPlan, detail: "Detected: \(detectedCursorPlan) · \(detectedCursorStatus) · \(detectedCursorAccount). Override only if needed.")
-                    HStack(spacing: 8) {
-                        Button("Refresh Claude") {
-                            refreshClaudeDetection()
-                        }
-                        Button("Use detected Claude") {
-                            claudeCodePlanLabel = detectedClaudePlan == "Not found" ? "" : detectedClaudePlan
-                        }
-                        .disabled(detectedClaudePlan == "Not found")
-                        Button("Enable Claude exact usage") {
-                            installClaudeStatusLine()
-                        }
-                        Button(isTestingCursorUsage ? "Testing Cursor" : "Test Cursor") {
-                            testCursorUsage()
-                        }
-                        .disabled(isTestingCursorUsage)
-                        .help("Verify live Cursor usage without exposing your token")
-                        Button("Refresh detected plan") {
-                            refreshCursorDetection()
-                        }
-                        Text("\(claudeMessage) \(claudeExactStatus) \(cursorMessage)")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                }
-
-                SettingsPanel {
-                    Text("Monitored providers")
-                        .font(.system(size: 11, weight: .semibold))
-                    ProviderMonitorRow(provider: "Codex", isOn: $monitorCodexEnabled, detail: "Account quota plus local fallback from ~/.codex.")
-                    ProviderMonitorRow(provider: "Cursor", isOn: $monitorCursorEnabled, detail: "Local account state plus live current-period usage.")
-                    ProviderMonitorRow(provider: "Claude Code", isOn: $monitorClaudeCodeEnabled, detail: "Local token estimates from ~/.claude/projects.")
-                    ProviderMonitorRow(provider: "OpenCode", isOn: $monitorOpenCodeEnabled, detail: "Local token estimates from OpenCode SQLite.")
-                    ProviderMonitorRow(provider: "OpenRouter", isOn: $monitorOpenRouterEnabled, detail: "Official key and credit endpoints when a key is saved.")
-                    ProviderMonitorRow(provider: "OpenAI", isOn: $monitorOpenAIEnabled, detail: "Official organization costs and token usage when an admin key is saved.")
-                    Text("Turning a provider off removes it from polling, alerts, history views, setup prompts, and the exported status snapshot.")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-            SettingsPanel {
-                Text("Menu bar")
-                    .font(.system(size: 11, weight: .semibold))
-                Picker("Display", selection: $menuBarDisplayMode) {
-                    Text("Detail").tag(MenuBarDisplayMode.detailed.rawValue)
-                    Text("Pair").tag(MenuBarDisplayMode.pair.rawValue)
-                    Text("Trend").tag(MenuBarDisplayMode.sparkline.rawValue)
-                    Text("Compact").tag(MenuBarDisplayMode.compact.rawValue)
-                    Text("Minimal").tag(MenuBarDisplayMode.minimal.rawValue)
-                }
-                .pickerStyle(.segmented)
-                Picker("Focus", selection: $menuBarProviderFocus) {
-                    Text("Auto").tag(MenuBarProviderFocus.auto.rawValue)
-                    Text("Codex").tag(MenuBarProviderFocus.codex.rawValue)
-                    Text("Cursor").tag(MenuBarProviderFocus.cursor.rawValue)
-                    Text("Claude").tag(MenuBarProviderFocus.claudeCode.rawValue)
-                    Text("OpenRouter").tag(MenuBarProviderFocus.openRouter.rawValue)
-                    Text("OpenAI").tag(MenuBarProviderFocus.openAI.rawValue)
-                }
-                .pickerStyle(.segmented)
-                Text("Display controls density. Focus pins which provider drives the menu bar label; Auto still chooses the tightest useful lane.")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-
-            SettingsPanel {
-                Text("Auto-sync")
-                    .font(.system(size: 11, weight: .semibold))
-                Picker("Refresh", selection: $refreshIntervalSeconds) {
-                    Text("1 min").tag(60)
-                    Text("3 min").tag(180)
-                    Text("5 min").tag(300)
-                    Text("15 min").tag(900)
-                }
-                .pickerStyle(.segmented)
-                Text("Runs in the background while the menu bar app is open. Manual Refresh always works immediately.")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-
-            SettingsPanel {
-                Text("Warnings")
-                    .font(.system(size: 11, weight: .semibold))
-                HStack(spacing: 12) {
-                    Toggle("50%", isOn: $alert50Enabled)
-                    Toggle("75%", isOn: $alert75Enabled)
-                    Toggle("90%", isOn: $alert90Enabled)
-                    Toggle("100%", isOn: $alert100Enabled)
-                    Toggle("Stale", isOn: $staleWarningsEnabled)
-                }
-                .font(.system(size: 10, weight: .medium))
-                Text("Alerts fire when usage crosses enabled thresholds. Codex notifications use remaining-capacity language.")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-
-            SettingsPanel {
-                Text("Budget guardrails")
-                    .font(.system(size: 11, weight: .semibold))
-                EditableTextPlanRow(
-                    provider: "OpenAI",
-                    text: $openAIMonthlyBudgetUSD,
-                    placeholder: "optional USD",
-                    detail: "Turns current-month OpenAI spend into a comparable budget lane. Leave blank to show spend only."
-                )
-                EditableTextPlanRow(
-                    provider: "Cursor",
-                    text: $cursorMonthlyBudgetUSD,
-                    placeholder: "optional USD",
-                    detail: "Optional spend guardrail for Cursor spend rows. Leave blank to avoid invented limits."
-                )
-                EditableTextPlanRow(
-                    provider: "OpenRouter",
-                    text: $openRouterMonthlyBudgetCredits,
-                    placeholder: "optional credits",
-                    detail: "Optional key-usage guardrail when OpenRouter has no key limit. Account credits stay provider-reported."
-                )
-            }
-
-            SettingsPanel {
-                Text("Provider alert profiles")
-                    .font(.system(size: 11, weight: .semibold))
-                AlertProfileRow(provider: "Codex", selection: $codexAlertProfile)
-                AlertProfileRow(provider: "Cursor", selection: $cursorAlertProfile)
-                AlertProfileRow(provider: "OpenRouter", selection: $openRouterAlertProfile)
-                AlertProfileRow(provider: "Claude Code", selection: $claudeCodeAlertProfile)
-                Text("Global keeps the warning toggles above. Use Off for providers where notifications are noisy.")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-
-            SettingsPanel {
-                Text("OpenRouter API key")
-                    .font(.system(size: 11, weight: .semibold))
-                HStack(spacing: 8) {
-                    SecureField("sk-or-v1-...", text: $openRouterKey)
-                        .textFieldStyle(.roundedBorder)
-                    Button("Paste") {
-                        pasteOpenRouterKey()
-                    }
-                    .help("Paste from clipboard")
-                    Button(isTestingOpenRouterKey ? "Testing" : "Test") {
-                        testOpenRouterKey()
-                    }
-                    .disabled(isTestingOpenRouterKey)
-                    .help("Test without saving")
-                }
-                HStack(spacing: 8) {
-                    Button("Paste, Test & Save") {
-                        pasteAndSaveOpenRouterKey()
-                    }
-                    .disabled(isTestingOpenRouterKey)
-                    Button("Save OpenRouter") {
-                        saveOpenRouterKey()
-                    }
-                    .keyboardShortcut(.defaultAction)
-                    Button("Delete") {
-                        KeychainStore.deleteOpenRouterKey()
-                        openRouterKey = ""
-                        message = "OpenRouter key deleted."
-                    }
-                    Spacer()
-                }
-                Text(message)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-
-            SettingsPanel {
-                Text("OpenAI Admin key")
-                    .font(.system(size: 11, weight: .semibold))
-                HStack(spacing: 8) {
-                    SecureField("sk-admin-...", text: $openAIAdminKey)
-                        .textFieldStyle(.roundedBorder)
-                    Button("Paste") {
-                        pasteOpenAIAdminKey()
-                    }
-                    .help("Paste from clipboard")
-                    Button(isTestingOpenAIKey ? "Testing" : "Test") {
-                        testOpenAIAdminKey()
-                    }
-                    .disabled(isTestingOpenAIKey)
-                    .help("Test without saving")
-                }
-                HStack(spacing: 8) {
-                    Button("Paste, Test & Save") {
-                        pasteAndSaveOpenAIAdminKey()
-                    }
-                    .disabled(isTestingOpenAIKey)
-                    Button("Save OpenAI") {
-                        saveOpenAIAdminKey()
-                    }
-                    Button("Delete") {
-                        KeychainStore.deleteOpenAIAdminKey()
-                        openAIAdminKey = ""
-                        openAIMessage = "OpenAI Admin key deleted."
-                    }
-                    Spacer()
-                }
-                Text(openAIMessage)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
-            SettingsPanel {
-                Text("Data & privacy")
-                    .font(.system(size: 11, weight: .semibold))
-                HStack(spacing: 8) {
-                    Button("Reveal history") {
-                        revealHistory()
-                    }
-                    Button("Reveal status JSON") {
-                        revealStatusExport()
-                    }
-                    Button("Clear history") {
-                        clearHistory()
-                    }
-                    Spacer()
-                }
-                Text(historyMessage)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
-            SettingsPanel {
-                Text("App maintenance")
-                    .font(.system(size: 11, weight: .semibold))
-                HStack(spacing: 8) {
-                    Button(isCheckingForUpdates ? "Checking" : "Check updates") {
-                        checkForUpdates()
-                    }
-                    .disabled(isCheckingForUpdates)
-                    Button("Open releases") {
-                        openReleases()
-                    }
-                    Button("Copy update command") {
-                        copyUpdateCommand()
-                    }
-                    Button("Reveal app") {
-                        revealInstalledApp()
-                    }
-                    Spacer()
-                }
-                Text(maintenanceMessage)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
-            SettingsPanel {
-                Text("Start at login")
-                    .font(.system(size: 11, weight: .semibold))
-                HStack(spacing: 8) {
-                    Button(isChangingLaunchAgent ? "Updating" : "Enable") {
-                        setLaunchAgent(enabled: true)
-                    }
-                    .disabled(isChangingLaunchAgent)
-                    Button(isChangingLaunchAgent ? "Updating" : "Disable") {
-                        setLaunchAgent(enabled: false)
-                    }
-                    .disabled(isChangingLaunchAgent)
-                    Button("Refresh status") {
-                        launchAgentMessage = LaunchAgentManager.statusMessage()
-                    }
-                    Spacer()
-                }
-                Text(launchAgentMessage)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
-            VStack(spacing: 8) {
-                HStack {
-                    Button("Cursor usage") {
-                        NSWorkspace.shared.open(URL(string: "https://cursor.com/dashboard")!)
-                    }
-                    Button("OpenRouter usage") {
-                        NSWorkspace.shared.open(URL(string: "https://openrouter.ai/settings/credits")!)
-                    }
-                    Button("OpenAI usage") {
-                        NSWorkspace.shared.open(URL(string: "https://platform.openai.com/usage")!)
-                    }
-                    Spacer()
-                }
-            }
-        }
-        .padding(18)
-    }
-    .frame(width: 560, height: 860)
-    }
-
-    private func pasteOpenRouterKey() {
-        guard let pasted = NSPasteboard.general.string(forType: .string) else {
-            message = "Clipboard does not contain text."
-            return
-        }
-        openRouterKey = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
-        message = "Pasted from clipboard. Save to store it in Keychain."
-    }
-
-    private func pasteAndSaveOpenRouterKey() {
-        guard let pasted = NSPasteboard.general.string(forType: .string) else {
-            message = "Clipboard does not contain text."
-            return
-        }
-        openRouterKey = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
-        testOpenRouterKey(saveOnSuccess: true)
-    }
-
-    private func pasteOpenAIAdminKey() {
-        guard let pasted = NSPasteboard.general.string(forType: .string) else {
-            openAIMessage = "Clipboard does not contain text."
-            return
-        }
-        openAIAdminKey = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
-        openAIMessage = "Pasted from clipboard. Save to store it in Keychain."
-    }
-
-    private func pasteAndSaveOpenAIAdminKey() {
-        guard let pasted = NSPasteboard.general.string(forType: .string) else {
-            openAIMessage = "Clipboard does not contain text."
-            return
-        }
-        openAIAdminKey = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
-        testOpenAIAdminKey(saveOnSuccess: true)
-    }
-
-    private func saveOpenRouterKey() {
-        do {
-            try KeychainStore.saveOpenRouterKey(openRouterKey)
-            message = "OpenRouter key saved. Refresh will use it for live API polling."
-        } catch {
-            message = "Could not save key: \(error.localizedDescription)"
-        }
-    }
-
-    private func saveOpenAIAdminKey() {
-        do {
-            try KeychainStore.saveOpenAIAdminKey(openAIAdminKey)
-            openAIMessage = "OpenAI Admin key saved. Refresh will use it for cost and usage polling."
-        } catch {
-            openAIMessage = "Could not save key: \(error.localizedDescription)"
-        }
-    }
-
-    private func testOpenRouterKey(saveOnSuccess: Bool = false) {
-        let key = openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else {
-            message = OpenRouterSetupCheck.failureMessage(error: ConnectorError.emptyAPIKey)
-            return
-        }
-        isTestingOpenRouterKey = true
-        message = saveOnSuccess ? "Testing OpenRouter key before saving..." : "Testing OpenRouter key..."
-        Task {
-            let result: String
-            do {
-                let connector = OpenRouterConnector()
-                let keySnapshot = try await connector.fetchCurrentKeyUsage(apiKey: key)
-                let creditsSnapshot = try? await connector.fetchAccountCredits(apiKey: key)
-                if saveOnSuccess {
-                    try KeychainStore.saveOpenRouterKey(key)
-                    result = OpenRouterSetupCheck.successMessage(keySnapshot: keySnapshot, creditsSnapshot: creditsSnapshot) + " Saved to Keychain."
-                } else {
-                    result = OpenRouterSetupCheck.successMessage(keySnapshot: keySnapshot, creditsSnapshot: creditsSnapshot)
-                }
-            } catch {
-                result = OpenRouterSetupCheck.failureMessage(error: error)
-            }
-            await MainActor.run {
-                message = result
-                isTestingOpenRouterKey = false
-            }
-        }
-    }
-
-    private func testOpenAIAdminKey(saveOnSuccess: Bool = false) {
-        let key = openAIAdminKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else {
-            openAIMessage = OpenAISetupCheck.failureMessage(error: ConnectorError.emptyAPIKey)
-            return
-        }
-        isTestingOpenAIKey = true
-        openAIMessage = saveOnSuccess ? "Testing OpenAI Admin key before saving..." : "Testing OpenAI Admin key..."
-        Task {
-            let result: String
-            do {
-                let connector = OpenAIConnector()
-                let costs = try await connector.fetchCurrentMonthCosts(adminKey: key)
-                let tokens = try? await connector.fetchCurrentMonthCompletionsUsage(adminKey: key)
-                if saveOnSuccess {
-                    try KeychainStore.saveOpenAIAdminKey(key)
-                    result = OpenAISetupCheck.successMessage(costs: costs, tokens: tokens) + " Saved to Keychain."
-                } else {
-                    result = OpenAISetupCheck.successMessage(costs: costs, tokens: tokens)
-                }
-            } catch {
-                result = OpenAISetupCheck.failureMessage(error: error)
-            }
-            await MainActor.run {
-                openAIMessage = result
-                isTestingOpenAIKey = false
-            }
-        }
-    }
-
-    private func testCursorUsage() {
-        isTestingCursorUsage = true
-        cursorMessage = "Testing Cursor live usage..."
-        Task {
-            let result: String
-            let account = CursorAccountStateReader(
-                cursorDirectory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Cursor")
-            ).read()
-            do {
-                let snapshots = try await CursorUsageConnector(planPreferences: AppPreferences.localPlanPreferences()).fetchUsage()
-                result = CursorSetupCheck.successMessage(snapshots: snapshots)
-            } catch {
-                result = CursorSetupCheck.failureMessage(error: error)
-            }
-            await MainActor.run {
-                updateCursorDetection(account)
-                cursorMessage = result
-                isTestingCursorUsage = false
-            }
-        }
-    }
-
-    private func refreshClaudeDetection() {
-        let account = ClaudeAccountStateReader().read()
-        detectedClaudePlan = account?.displayPlan ?? "Not found"
-        detectedClaudeAccount = account?.maskedEmail ?? "No account identity"
-        claudeExactStatus = ClaudeStatusLineInstaller.statusMessage()
-        claudeMessage = Self.claudeDetectionMessage(account)
-    }
-
-    private func installClaudeStatusLine() {
-        do {
-            let result = try ClaudeStatusLineInstaller.install(outputURL: AppStoragePaths.claudeStatusLineURL)
-            claudeExactStatus = result
-            claudeMessage = "\(Self.claudeDetectionMessage(ClaudeAccountStateReader().read())) Start or continue a Claude Code session once so rate_limits are captured."
-        } catch {
-            claudeExactStatus = "Claude exact setup failed: \(error.localizedDescription)"
-        }
-    }
-
-    private func refreshCursorDetection() {
-        let account = CursorAccountStateReader(
-            cursorDirectory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Cursor")
-        ).read()
-        updateCursorDetection(account)
-        if let account {
-            cursorMessage = "Detected \(account.displayPlan ?? "plan unknown") · \(account.displayStatus ?? "status unknown") · \(account.maskedEmail ?? "account hidden"). Test for exact live usage."
-        } else {
-            cursorMessage = "Cursor account not detected yet. Open Cursor while signed in, then test again."
-        }
-    }
-
-    private func updateCursorDetection(_ account: CursorAccountState?) {
-        detectedCursorPlan = account?.displayPlan ?? "Not found"
-        detectedCursorStatus = account?.displayStatus ?? "No local account status"
-        detectedCursorAccount = account?.maskedEmail ?? "No account identity"
-    }
-
-    private func revealHistory() {
-        let historyURL = AppStoragePaths.historyURL
-        if FileManager.default.fileExists(atPath: historyURL.path) {
-            NSWorkspace.shared.activateFileViewerSelecting([historyURL])
-            historyMessage = "Revealed usage-history.json in Finder."
-            return
-        }
-        do {
-            try FileManager.default.createDirectory(at: historyURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            NSWorkspace.shared.open(historyURL.deletingLastPathComponent())
-            historyMessage = "History file has not been created yet. Opened its folder."
-        } catch {
-            historyMessage = "Could not open history folder: \(error.localizedDescription)"
-        }
-    }
-
-    private func revealStatusExport() {
-        let statusURL = AppStoragePaths.statusURL
-        if FileManager.default.fileExists(atPath: statusURL.path) {
-            NSWorkspace.shared.activateFileViewerSelecting([statusURL])
-            historyMessage = "Revealed status.json in Finder."
-            return
-        }
-        do {
-            try FileManager.default.createDirectory(at: statusURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            NSWorkspace.shared.open(statusURL.deletingLastPathComponent())
-            historyMessage = "Opened status folder. status.json appears after the next refresh."
-        } catch {
-            historyMessage = "Could not open status folder: \(error.localizedDescription)"
-        }
-    }
-
-    private func clearHistory() {
-        do {
-            try UsageHistoryFileStore(fileURL: AppStoragePaths.historyURL).clear()
-            NotificationCenter.default.post(name: .aiFuelGaugeHistoryCleared, object: nil)
-            historyMessage = "Local usage history cleared."
-        } catch {
-            historyMessage = "Could not clear history: \(error.localizedDescription)"
-        }
-    }
-
-    private func openReleases() {
-        NSWorkspace.shared.open(URL(string: "https://github.com/ozansozuozgit/aifuelgauge/releases/latest")!)
-        maintenanceMessage = "Opened the latest GitHub release."
-    }
-
-    private func checkForUpdates() {
-        isCheckingForUpdates = true
-        maintenanceMessage = "Checking GitHub releases..."
-        Task {
-            let result: String
-            do {
-                let update = try await AppUpdateChecker().check(currentVersion: currentAppVersion)
-                result = update.message
-            } catch ConnectorError.badStatus(404) {
-                result = "No GitHub release is published yet."
-            } catch {
-                result = "Could not check releases. Use Open releases or try again later."
-            }
-            await MainActor.run {
-                maintenanceMessage = result
-                isCheckingForUpdates = false
-            }
-        }
-    }
-
-    private func copyUpdateCommand() {
-        let command = "brew upgrade --cask ai-fuel-gauge || brew install --cask https://raw.githubusercontent.com/ozansozuozgit/aifuelgauge/main/Casks/ai-fuel-gauge.rb"
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(command, forType: .string)
-        maintenanceMessage = "Copied Homebrew update command."
-    }
-
-    private func revealInstalledApp() {
-        let appURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/AI Fuel Gauge.app")
-        if FileManager.default.fileExists(atPath: appURL.path) {
-            NSWorkspace.shared.activateFileViewerSelecting([appURL])
-            maintenanceMessage = "Revealed installed app in Finder."
-            return
-        }
-        NSWorkspace.shared.open(appURL.deletingLastPathComponent())
-        maintenanceMessage = "Opened ~/Applications. The installed app was not found there."
-    }
-
-    private func setLaunchAgent(enabled: Bool) {
-        isChangingLaunchAgent = true
-        launchAgentMessage = enabled ? "Enabling start at login..." : "Disabling start at login..."
-        Task {
-            let result: String
-            do {
-                if enabled {
-                    try LaunchAgentManager.enable()
-                    result = LaunchAgentManager.statusMessage()
-                } else {
-                    try LaunchAgentManager.disable()
-                    result = LaunchAgentManager.statusMessage()
-                }
-            } catch {
-                result = "Could not \(enabled ? "enable" : "disable") start at login: \(error.localizedDescription)"
-            }
-            await MainActor.run {
-                launchAgentMessage = result
-                isChangingLaunchAgent = false
-            }
-        }
-    }
-
-    private var currentAppVersion: String? {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-    }
-}
-
-private enum LaunchAgentManager {
+enum LaunchAgentManager {
     private static let label = "com.ozansozuoz.aifuelgauge"
 
     private static var plistURL: URL {
@@ -2486,124 +1532,7 @@ private enum LaunchAgentError: LocalizedError {
     }
 }
 
-private struct SettingsPanel<Content: View>: View {
-    let content: Content
-
-    init(@ViewBuilder content: () -> Content) {
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            content
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-}
-
-private struct EditablePlanRow: View {
-    let provider: String
-    let value: String
-    let detail: String
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(provider)
-                .font(.system(size: 10, weight: .semibold))
-                .frame(width: 86, alignment: .leading)
-            Text(value)
-                .font(.system(size: 10, weight: .semibold))
-                .monospacedDigit()
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(.quaternary, in: Capsule())
-            Text(detail)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-    }
-}
-
-private struct EditableTextPlanRow: View {
-    let provider: String
-    @Binding var text: String
-    let placeholder: String
-    let detail: String
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(provider)
-                .font(.system(size: 10, weight: .semibold))
-                .frame(width: 86, alignment: .leading)
-            TextField(placeholder, text: $text)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 10, weight: .medium))
-                .frame(width: 110)
-            Text(detail)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-    }
-}
-
-private struct ProviderMonitorRow: View {
-    let provider: String
-    @Binding var isOn: Bool
-    let detail: String
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Toggle(provider, isOn: $isOn)
-                .font(.system(size: 10, weight: .semibold))
-                .toggleStyle(.checkbox)
-                .frame(width: 132, alignment: .leading)
-            Text(isOn ? "On" : "Off")
-                .font(.system(size: 10, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(isOn ? Color.green : Color.secondary)
-                .frame(width: 28, alignment: .leading)
-            Text(detail)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-    }
-}
-
-private struct AlertProfileRow: View {
-    let provider: String
-    @Binding var selection: String
-
-    private var selectedProfile: AlertThresholdProfile {
-        AlertThresholdProfile(rawValue: selection) ?? .inherit
-    }
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(provider)
-                .font(.system(size: 10, weight: .semibold))
-                .frame(width: 86, alignment: .leading)
-            Picker(provider, selection: $selection) {
-                ForEach(AlertThresholdProfile.allCases) { profile in
-                    Text(profile.title).tag(profile.rawValue)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(width: 118)
-            Text(selectedProfile.detail)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-    }
-}
-
-private enum KeychainStore {
+enum KeychainStore {
     private static let service = "AI Fuel Gauge"
     private static let openRouterAccount = "openrouter-api-key"
     private static let openAIAdminAccount = "openai-admin-api-key"

@@ -74,6 +74,11 @@ public enum MenuBarProviderFocus: String, Codable, Equatable, Hashable, CaseIter
     }
 }
 
+public enum HeroLayout: String, Codable, Equatable, Hashable, CaseIterable, Sendable {
+    case featured
+    case trio
+}
+
 public struct UsageAccount: Codable, Equatable, Hashable, Sendable {
     public let identifier: String
     public let displayName: String

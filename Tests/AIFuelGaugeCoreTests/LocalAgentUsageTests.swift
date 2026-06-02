@@ -78,8 +78,29 @@ final class LocalAgentUsageTests: XCTestCase {
         XCTAssertEqual(snapshot.used, .tokens(input: 110, output: 25, cacheRead: 307, cacheWrite: 42))
         XCTAssertNil(snapshot.account)
         XCTAssertNil(snapshot.limit)
+        XCTAssertNil(snapshot.providerNote)
         XCTAssertEqual(snapshot.confidence, .estimated)
         XCTAssertEqual(snapshot.updatedAt, Date(timeIntervalSince1970: 1_779_797_100))
+    }
+
+    func testParsesClaudeHeadlessUsageAsEstimatedPrintTokens() throws {
+        let lines = [
+            """
+            {"type":"queue-operation","operation":"enqueue","sessionId":"headless-session","timestamp":"2026-05-26T11:59:00Z"}
+            """,
+            """
+            {"type":"assistant","entrypoint":"sdk-cli","sessionId":"headless-session","timestamp":"2026-05-26T12:00:00Z","message":{"usage":{"input_tokens":1000,"output_tokens":200,"cache_read_input_tokens":3000,"cache_creation_input_tokens":400}}}
+            """
+        ]
+
+        let snapshot = try ClaudeJSONLUsageParser().parse(lines: lines, label: "Claude Code")
+
+        XCTAssertEqual(snapshot.label, "print/headless tokens")
+        XCTAssertEqual(snapshot.used, .tokens(input: 1_000, output: 200, cacheRead: 3_000, cacheWrite: 400))
+        XCTAssertEqual(snapshot.confidence, .estimated)
+        XCTAssertNil(snapshot.limit)
+        XCTAssertTrue(snapshot.providerNote?.contains("claude -p") == true)
+        XCTAssertTrue(snapshot.providerNote?.contains("official 5h or weekly quota percentages") == true)
     }
 
     func testReadsCursorPlanFromLocalStateDatabaseWithoutHardcodingPlan() throws {

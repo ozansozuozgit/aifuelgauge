@@ -1450,7 +1450,7 @@ public struct DashboardViewModel: Equatable, Sendable {
             let lastSeen = lastSeenPercent(for: snapshot).map { "Last seen \($0)% used before reset. " } ?? ""
             return "\(lastSeen)Waiting for Codex to emit a fresh \(snapshot.label) quota event; not showing expired data as current."
         case (.claudeCode, .localLogs, .estimated):
-            return "Estimated from local Claude Code usage metadata. Token totals are approximate and no prompt text is stored."
+            return withProviderNote("Estimated from local Claude Code usage metadata. Token totals are approximate and no prompt text is stored.")
         case (.openCode, .localLogs, .unknown):
             return "Detected OpenCode locally, but usage parsing is not wired yet. Treat this lane as setup needed."
         case (_, .officialAPI, .exact):
