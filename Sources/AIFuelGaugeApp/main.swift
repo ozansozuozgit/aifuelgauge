@@ -1668,26 +1668,6 @@ private struct MiniMeter: View {
     }
 }
 
-private struct StatePill: View {
-    let state: UsageState
-    let label: String
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Circle()
-                .fill(color(for: state))
-                .frame(width: 6, height: 6)
-            Text(label)
-        }
-        .font(.system(size: 10, weight: .semibold, design: .rounded))
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
-        .background(color(for: state).opacity(0.13), in: Capsule())
-        .overlay(Capsule().stroke(.white.opacity(0.22), lineWidth: 1))
-    }
-}
-
 private struct FooterButton: View {
     let title: String
     let systemName: String
