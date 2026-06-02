@@ -2250,7 +2250,7 @@ private struct LegacySettingsView: View {
     }
 }
 
-private enum LaunchAgentManager {
+enum LaunchAgentManager {
     private static let label = "com.ozansozuoz.aifuelgauge"
 
     private static var plistURL: URL {
