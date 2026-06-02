@@ -879,62 +879,97 @@ struct WorkbenchSection: View {
     let copyServer: (LocalDevServer) -> Void
     let stopServer: (LocalDevServer) -> Void
 
+    @State private var isExpanded: Bool = false
+
     private var existingRoutes: [AgentQuickRoute] {
         snapshot.routes.filter(\.exists)
     }
 
     var body: some View {
         if !snapshot.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Text("Workbench")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.secondary)
-                    Text(summaryLabel)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary.opacity(0.75))
-                    Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 0) {
+                // Header — tappable collapse toggle
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) { isExpanded.toggle() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "terminal")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(FuelTheme.text2)
+                        Text("Workbench")
+                            .font(.fuelText(13, weight: .semibold))
+                            .foregroundStyle(FuelTheme.text)
+                        Text(summaryLabel)
+                            .font(.fuelText(11.5))
+                            .foregroundStyle(FuelTheme.text3)
+                        Spacer(minLength: 0)
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(FuelTheme.text3)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
 
-                HStack(alignment: .top, spacing: 8) {
-                    if !snapshot.sessions.isEmpty {
-                        workbenchGroup(title: "Sessions", systemName: "terminal") {
-                            ForEach(snapshot.sessions.prefix(3)) { session in
-                                WorkbenchSessionRow(session: session, reveal: { revealSession(session) })
+                if isExpanded {
+                    // Divider
+                    Rectangle()
+                        .fill(FuelTheme.divider)
+                        .frame(height: 1)
+                        .padding(.horizontal, 12)
+
+                    // Two-column grid: SESSIONS | DEV SERVERS (routes nested)
+                    HStack(alignment: .top, spacing: 14) {
+                        if !snapshot.sessions.isEmpty {
+                            workbenchGroup(title: "SESSIONS") {
+                                ForEach(snapshot.sessions.prefix(3)) { session in
+                                    WorkbenchSessionRow(session: session, reveal: { revealSession(session) })
+                                }
                             }
                         }
-                    }
 
-                    if !snapshot.devServers.isEmpty {
-                        workbenchGroup(title: "Servers", systemName: "network") {
-                            ForEach(snapshot.devServers.prefix(3)) { server in
-                                WorkbenchServerRow(
-                                    server: server,
-                                    open: { openServer(server) },
-                                    copy: { copyServer(server) },
-                                    stop: { stopServer(server) }
-                                )
-                            }
-                        }
-                    }
-
-                    if !existingRoutes.isEmpty {
-                        workbenchGroup(title: "Routes", systemName: "folder") {
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 4)], alignment: .leading, spacing: 4) {
-                                ForEach(existingRoutes.prefix(6)) { route in
-                                    WorkbenchRouteButton(
-                                        route: route,
-                                        open: { openQuickRoute(route) },
-                                        copy: { copyQuickRoute(route) }
+                        if !snapshot.devServers.isEmpty || !existingRoutes.isEmpty {
+                            workbenchGroup(title: "DEV SERVERS") {
+                                ForEach(snapshot.devServers.prefix(3)) { server in
+                                    WorkbenchServerRow(
+                                        server: server,
+                                        open: { openServer(server) },
+                                        copy: { copyServer(server) },
+                                        stop: { stopServer(server) }
                                     )
+                                }
+                                if !existingRoutes.isEmpty {
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        Text("ROUTES")
+                                            .font(.fuelEyebrow)
+                                            .foregroundStyle(FuelTheme.text3)
+                                            .padding(.top, snapshot.devServers.isEmpty ? 0 : 6)
+                                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 82), spacing: 4)], alignment: .leading, spacing: 4) {
+                                            ForEach(existingRoutes.prefix(6)) { route in
+                                                WorkbenchRouteButton(
+                                                    route: route,
+                                                    open: { openQuickRoute(route) },
+                                                    copy: { copyQuickRoute(route) }
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+                    .padding(.bottom, 12)
                 }
             }
-            .padding(10)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.62), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(FuelTheme.surfaceSunken, in: RoundedRectangle(cornerRadius: FuelTheme.radiusMD, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: FuelTheme.radiusMD, style: .continuous)
+                    .strokeBorder(FuelTheme.border, lineWidth: 1)
+            )
         }
     }
 
@@ -947,11 +982,11 @@ struct WorkbenchSection: View {
         return parts.joined(separator: " · ")
     }
 
-    private func workbenchGroup<Content: View>(title: String, systemName: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Label(title, systemImage: systemName)
-                .font(.system(size: 9, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
+    private func workbenchGroup<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.fuelEyebrow)
+                .foregroundStyle(FuelTheme.text3)
             content()
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -964,19 +999,25 @@ private struct WorkbenchSessionRow: View {
 
     var body: some View {
         Button(action: reveal) {
-            HStack(spacing: 6) {
+            HStack(spacing: 7) {
                 providerBadge(session.provider.shortName)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(session.project)
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.fuelText(11.5, weight: .semibold))
+                        .foregroundStyle(FuelTheme.text)
                         .lineLimit(1)
-                    Text("\(session.status) · \(session.detail)")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    HStack(spacing: 3) {
+                        Text(session.status)
+                            .foregroundStyle(session.status.lowercased() == "active" ? FuelTheme.safe : FuelTheme.text3)
+                        Text("· \(session.detail)")
+                            .foregroundStyle(FuelTheme.text3)
+                    }
+                    .font(.fuelText(10))
+                    .lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }
+            .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -985,10 +1026,10 @@ private struct WorkbenchSessionRow: View {
 
     private func providerBadge(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 8, weight: .bold, design: .rounded))
-            .foregroundStyle(.secondary)
-            .frame(width: 28, height: 16)
-            .background(Color(nsColor: .separatorColor).opacity(0.18), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .foregroundStyle(FuelTheme.text2)
+            .frame(width: 26, height: 17)
+            .background(FuelTheme.track, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
     }
 }
 
@@ -999,38 +1040,42 @@ private struct WorkbenchServerRow: View {
     let stop: () -> Void
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 7) {
             Button(action: open) {
-                VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
                     Text(":\(server.port)")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
+                        .font(.fuelMono(11.5))
+                        .foregroundStyle(FuelTheme.accent)
                     Text(server.command)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .font(.fuelText(11))
+                        .foregroundStyle(FuelTheme.text2)
                         .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("Open \(server.url)")
 
-            Button(action: copy) {
-                Image(systemName: "doc.on.doc")
-                    .font(.system(size: 9, weight: .semibold))
-                    .frame(width: 18, height: 18)
+            Button(action: open) {
+                Image(systemName: "arrow.up.forward.square")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(FuelTheme.text3)
+                    .frame(width: 20, height: 20)
             }
             .buttonStyle(.plain)
-            .help("Copy server URL")
+            .help("Open \(server.url)")
 
             Button(action: stop) {
                 Image(systemName: "stop.fill")
-                    .font(.system(size: 8, weight: .semibold))
-                    .frame(width: 18, height: 18)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(FuelTheme.text3)
+                    .frame(width: 20, height: 20)
             }
             .buttonStyle(.plain)
             .help("Stop process \(server.processID)")
         }
+        .padding(.vertical, 4)
     }
 }
 
@@ -1044,10 +1089,13 @@ private struct WorkbenchRouteButton: View {
             Button("Open", action: open)
             Button("Copy path", action: copy)
         } label: {
-            Label(route.title, systemImage: "folder")
-                .font(.system(size: 9, weight: .semibold))
+            Text(route.title)
+                .font(.fuelText(10.5, weight: .medium))
+                .foregroundStyle(FuelTheme.text2)
                 .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(FuelTheme.track, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
