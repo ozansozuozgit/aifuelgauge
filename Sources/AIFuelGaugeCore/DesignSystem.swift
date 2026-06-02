@@ -123,3 +123,44 @@ public extension Confidence {
         }
     }
 }
+
+public extension Font {
+    /// Monospaced font for all numbers, %, $, and reset values.
+    static func fuelMono(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
+        .system(size: size, weight: weight, design: .monospaced)
+    }
+    static func fuelText(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight)
+    }
+    /// Uppercase eyebrow label, e.g. "TIGHTEST LANE", "LANES".
+    static let fuelEyebrow = Font.system(size: 10.5, weight: .semibold)
+}
+
+public struct FuelShadow: Sendable {
+    public let color: Color
+    public let radius: CGFloat
+    public let x: CGFloat
+    public let y: CGFloat
+    public init(color: Color, radius: CGFloat, x: CGFloat, y: CGFloat) {
+        self.color = color; self.radius = radius; self.x = x; self.y = y
+    }
+    /// Approximation of --shadow-pop.
+    public static let pop = FuelShadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 8)
+    /// Approximation of --shadow-win.
+    public static let win = FuelShadow(color: .black.opacity(0.28), radius: 36, x: 0, y: 18)
+}
+
+public extension View {
+    /// Raised card surface used by hero, reset, and settings cards.
+    func fuelCard(radius: CGFloat = FuelTheme.radiusLG, padding: CGFloat = 14) -> some View {
+        self.padding(padding)
+            .background(FuelTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(FuelTheme.border, lineWidth: 1)
+            )
+    }
+    func fuelShadow(_ shadow: FuelShadow) -> some View {
+        self.shadow(color: shadow.color, radius: shadow.radius, x: shadow.x, y: shadow.y)
+    }
+}
