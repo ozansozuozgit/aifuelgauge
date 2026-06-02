@@ -235,3 +235,61 @@ struct HeroTrioCard: View {
         return "\(Int((p * 100).rounded()))%"
     }
 }
+
+struct LaneRow: View {
+    let row: DashboardRow
+    let isPinned: Bool
+    let showDetails: Bool
+    let onPin: () -> Void
+    let onCopy: () -> Void
+    let onOpen: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Circle().fill(FuelTheme.color(for: row.state)).frame(width: 8, height: 8)
+                Text(row.title).font(.fuelText(13, weight: .semibold)).foregroundStyle(FuelTheme.text)
+                Text(row.detail).font(.fuelText(11.5)).foregroundStyle(FuelTheme.text3).lineLimit(1)
+                Spacer()
+                Text(row.value).font(.fuelMono(13)).foregroundStyle(FuelTheme.text)
+                laneButton("pin.fill", active: isPinned, action: onPin)
+                laneButton("doc.on.doc", action: onCopy)
+                if row.dashboardURL != nil { laneButton("arrow.up.right.square", action: onOpen) }
+            }
+            Meter(percent: row.meterPercent, state: row.state)
+            if let label = row.meterLabel {
+                Text(label).font(.fuelText(11)).foregroundStyle(FuelTheme.color(for: row.state))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            if showDetails {
+                if !row.trendPercents.isEmpty {
+                    HStack(spacing: 8) {
+                        Sparkline(points: row.trendPercents, state: row.state).frame(width: 90)
+                        TrustChip(confidence: row.confidence)
+                        if let trend = row.trendCaption {
+                            Text(trend).font(.fuelText(11)).foregroundStyle(FuelTheme.text3)
+                        }
+                        Spacer()
+                    }
+                }
+                if let pace = row.paceCaption {
+                    Label(pace, systemImage: "checkmark").labelStyle(.titleAndIcon)
+                        .font(.fuelText(11.5)).foregroundStyle(FuelTheme.text2)
+                }
+                if !row.receiptText.isEmpty {
+                    Label(row.receiptText, systemImage: "info.circle").labelStyle(.titleAndIcon)
+                        .font(.fuelText(11)).foregroundStyle(FuelTheme.text3)
+                }
+            }
+        }
+        .padding(.vertical, 10).padding(.horizontal, 12)
+    }
+
+    private func laneButton(_ symbol: String, active: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 11))
+                .foregroundStyle(active ? FuelTheme.accent : FuelTheme.text3)
+        }
+        .buttonStyle(.plain)
+    }
+}
