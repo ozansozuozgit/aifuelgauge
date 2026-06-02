@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 import SwiftUI
 @testable import AIFuelGaugeCore
@@ -31,5 +32,26 @@ final class DesignSystemTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(v, 0.0)
             XCTAssertLessThanOrEqual(v, 1.0)
         }
+    }
+}
+
+extension DesignSystemTests {
+    func testFuelStateColorsExistForEveryState() {
+        for state in [UsageState.unknown, .safe, .caution, .critical, .exhausted] {
+            // Should not crash and should resolve to some color.
+            _ = FuelTheme.color(for: state)
+        }
+    }
+
+    func testSurfaceTokensDistinctLightDark() {
+        // Resolve the dynamic NSColor in both appearances and confirm they differ.
+        let light = NSAppearance(named: .aqua)!
+        let dark = NSAppearance(named: .darkAqua)!
+        let token = FuelTheme.surfaceRaised
+        var lightColor = NSColor.black
+        var darkColor = NSColor.black
+        light.performAsCurrentDrawingAppearance { lightColor = NSColor(token).usingColorSpace(.sRGB)! }
+        dark.performAsCurrentDrawingAppearance { darkColor = NSColor(token).usingColorSpace(.sRGB)! }
+        XCTAssertNotEqual(lightColor, darkColor)
     }
 }
