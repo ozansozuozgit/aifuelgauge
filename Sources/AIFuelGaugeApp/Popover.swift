@@ -434,10 +434,16 @@ struct DashboardView: View {
             HeroTrioCard(rows: HeroFocus.topLanes(model.rows, count: 3))
         } else if let focus = HeroFocus.resolve(model.rows, pinnedID: heroPinnedID) {
             HeroFeaturedCard(row: focus, allRows: model.rows, insight: model.insight,
-                             resetCaption: focus.meterLabel, pinnedID: $heroPinnedID)
+                             resetCaption: resetCaption(for: focus), pinnedID: $heroPinnedID)
         } else {
             heroPlaceholder
         }
+    }
+
+    private func resetCaption(for row: DashboardRow) -> String? {
+        let reset = model.resetTimeline.first { $0.id == row.id }
+            ?? model.resetTimeline.first { $0.title == row.title }
+        return reset.map { "Resets in \($0.value)" }
     }
 
     private var heroPlaceholder: some View {
@@ -458,7 +464,9 @@ struct DashboardView: View {
             Spacer()
             Picker("", selection: $heroLayoutRaw) {
                 Image(systemName: "gauge.medium").tag(HeroLayout.featured.rawValue)
+                    .accessibilityLabel("Featured layout")
                 Image(systemName: "square.grid.3x1.below.line.grid.1x2").tag(HeroLayout.trio.rawValue)
+                    .accessibilityLabel("Top 3 layout")
             }.pickerStyle(.segmented).labelsHidden().fixedSize()
         }
     }
@@ -501,9 +509,8 @@ struct DashboardView: View {
     }
 
     private var resetItems: [ResetContextStrip.Item] {
-        HeroFocus.topLanes(model.rows, count: 3).compactMap { row in
-            guard let label = row.meterLabel else { return nil }
-            return ResetContextStrip.Item(eyebrow: "RESET", value: label, caption: row.title, state: row.state)
+        model.resetTimeline.prefix(3).map { item in
+            ResetContextStrip.Item(eyebrow: "RESET", value: item.value, caption: item.title, state: item.state)
         }
     }
 }

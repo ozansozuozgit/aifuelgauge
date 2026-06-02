@@ -151,7 +151,7 @@ enum AppVersionInfo {
     }
 }
 
-// MARK: - Stub panes (filled in by Tasks 16-18)
+// MARK: - Panes
 
 struct GeneralPane: View {
     @AppStorage(AppPreferences.refreshIntervalSecondsKey) private var refreshIntervalSeconds = 180
@@ -189,9 +189,9 @@ struct GeneralPane: View {
         }
     }
 
-    // Mirrors LegacySettingsView.setLaunchAgent: toggles isChangingLaunchAgent, shows a
-    // transient message, calls LaunchAgentManager.enable()/disable() off the main actor,
-    // and on failure reverts the toggle and reports the error in the helper text.
+    // Toggles isChangingLaunchAgent, shows a transient message, calls
+    // LaunchAgentManager.enable()/disable() off the main actor, and on failure
+    // reverts the toggle and reports the error in the helper text.
     private func setLaunchAgent(enabled: Bool) {
         guard enabled != launchAgentMessage.hasPrefix("Start at login is on") else { return }
         isChangingLaunchAgent = true
@@ -488,7 +488,7 @@ struct MenuBarPane: View {
         }
     }
 
-    // Matches the labels LegacySettingsView uses for its Focus picker.
+    // Human-readable labels for the menu-bar Focus picker.
     private func focusLabel(_ focus: MenuBarProviderFocus) -> String {
         switch focus {
         case .auto: return "Auto"
