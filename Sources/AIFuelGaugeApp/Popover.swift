@@ -210,3 +210,28 @@ struct HeroFeaturedCard: View {
         return "\(Int((p * 100).rounded()))%"
     }
 }
+
+struct HeroTrioCard: View {
+    let rows: [DashboardRow]   // already top-3 ordered
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ForEach(rows) { row in
+                VStack(spacing: 6) {
+                    ArcGauge(percent: row.meterPercent ?? 0, state: row.state,
+                             value: percentText(row), caption: "", diameter: 84, lineWidth: 8)
+                    Text(row.title).font(.fuelText(12.5, weight: .semibold)).foregroundStyle(FuelTheme.text)
+                    Text(row.detail).font(.fuelText(11)).foregroundStyle(FuelTheme.text3)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .fuelCard(radius: FuelTheme.radiusLG, padding: 16)
+    }
+
+    private func percentText(_ row: DashboardRow) -> String {
+        guard let p = row.meterPercent else { return "—" }
+        return "\(Int((p * 100).rounded()))%"
+    }
+}
