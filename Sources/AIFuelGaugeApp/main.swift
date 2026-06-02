@@ -1579,7 +1579,7 @@ private final class SettingsWindowController {
     }
 }
 
-private struct SettingsView: View {
+private struct LegacySettingsView: View {
     @State private var openRouterKey: String
     @State private var openAIAdminKey: String
     @State private var message: String = "Stored in macOS Keychain. Not synced."
