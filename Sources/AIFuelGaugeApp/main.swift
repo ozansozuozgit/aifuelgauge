@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Darwin
 import Security
 import SwiftUI
 import UniformTypeIdentifiers
@@ -19,6 +20,7 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         AppPreferences.registerDefaults()
+        guard !Self.terminateDuplicateInstanceIfNeeded() else { return }
         installMainMenu()
         NotificationBridge.requestAuthorization()
 
@@ -46,6 +48,12 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
                     },
                     copyStatus: { [weak controller] in controller?.copyStatusSnapshot() },
                     copyDiagnostics: { [weak controller] in controller?.copyDiagnostics() },
+                    openQuickRoute: { [weak controller] route in controller?.openQuickRoute(route) },
+                    copyQuickRoute: { [weak controller] route in controller?.copyQuickRoute(route) },
+                    revealSession: { [weak controller] session in controller?.revealSession(session) },
+                    openServer: { [weak controller] server in controller?.openServer(server) },
+                    copyServer: { [weak controller] server in controller?.copyServerURL(server) },
+                    stopServer: { [weak controller] server in controller?.stopServer(server) },
                     quit: { NSApp.terminate(nil) }
                 )
             )
@@ -70,7 +78,9 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem?.button else { return }
         button.title = ""
         button.attributedTitle = NSAttributedString(string: "")
-        button.image = statusItemImage(title: model.title, state: model.state, accessibilityLabel: model.statusLabel)
+        let image = statusItemImage(title: model.title, state: model.state, accessibilityLabel: model.statusLabel)
+        statusItem?.length = min(image.size.width, Self.maximumStatusItemWidth)
+        button.image = image
         button.imagePosition = .imageOnly
         button.imageScaling = .scaleNone
         button.contentTintColor = nil
@@ -78,11 +88,43 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         button.setAccessibilityLabel("AI Fuel Gauge: \(model.title). \(model.statusLabel).")
     }
 
+    private static let maximumStatusItemWidth: CGFloat = 150
+
+    private static func terminateDuplicateInstanceIfNeeded() -> Bool {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return false }
+
+        let currentProcessID = pid_t(ProcessInfo.processInfo.processIdentifier)
+        let currentBundlePath = Bundle.main.bundleURL.standardizedFileURL.path
+        let installedBundlePath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Applications/AI Fuel Gauge.app")
+            .standardizedFileURL
+            .path
+        let currentIsInstalledCopy = currentBundlePath == installedBundlePath
+        let runningCopies = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+            .filter { $0.processIdentifier != currentProcessID }
+
+        guard !runningCopies.isEmpty else { return false }
+
+        if currentIsInstalledCopy {
+            for runningCopy in runningCopies {
+                guard runningCopy.bundleURL?.standardizedFileURL.path != currentBundlePath else { continue }
+                runningCopy.terminate()
+            }
+            return false
+        }
+
+        NSApp.terminate(nil)
+        return true
+    }
+
     private func statusItemImage(title: String, state: UsageState, accessibilityLabel: String) -> NSImage {
         let font = NSFont.monospacedDigitSystemFont(ofSize: 14, weight: .medium)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineBreakMode = .byTruncatingTail
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor.black
+            .foregroundColor: NSColor.black,
+            .paragraphStyle: paragraphStyle
         ]
         let text = title as NSString
         let textSize = text.size(withAttributes: attributes)
@@ -90,7 +132,9 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         let spacing: CGFloat = 5
         let horizontalPadding: CGFloat = 2
         let height: CGFloat = 22
-        let width = ceil(horizontalPadding * 2 + iconSize.width + spacing + textSize.width)
+        let maxTextWidth = Self.maximumStatusItemWidth - horizontalPadding * 2 - iconSize.width - spacing
+        let textWidth = min(textSize.width, maxTextWidth)
+        let width = ceil(horizontalPadding * 2 + iconSize.width + spacing + textWidth)
         let image = NSImage(size: NSSize(width: width, height: height))
 
         image.lockFocus()
@@ -105,9 +149,11 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
         )
         statusSymbolImage(for: state, accessibilityLabel: accessibilityLabel)?.draw(in: iconRect)
         text.draw(
-            at: NSPoint(
+            in: NSRect(
                 x: horizontalPadding + iconSize.width + spacing,
-                y: floor((height - textSize.height) / 2)
+                y: floor((height - textSize.height) / 2),
+                width: textWidth,
+                height: ceil(textSize.height)
             ),
             withAttributes: attributes
         )
@@ -435,6 +481,7 @@ private extension Notification.Name {
 @MainActor
 private final class DashboardController: ObservableObject {
     @Published private(set) var model: DashboardViewModel
+    @Published private(set) var workbench: AgentWorkbenchSnapshot = .empty
     @Published private(set) var isRefreshing = false
     @Published private(set) var refreshError: String?
     private var refreshTask: Task<Void, Never>?
@@ -493,6 +540,7 @@ private final class DashboardController: ObservableObject {
                 reconciled: reconciledSummary
             )
             self.summary = reconciledSummary
+            self.workbench = result.workbench
             self.history.record(summary: reconciledSummary)
             try? self.historyStore.save(self.history)
             self.rebuildModel()
@@ -573,6 +621,36 @@ private final class DashboardController: ObservableObject {
         NSPasteboard.general.setString(snapshot, forType: .string)
     }
 
+    func openQuickRoute(_ route: AgentQuickRoute) {
+        NSWorkspace.shared.open(URL(fileURLWithPath: route.path))
+    }
+
+    func copyQuickRoute(_ route: AgentQuickRoute) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(route.path, forType: .string)
+    }
+
+    func revealSession(_ session: AgentSessionSummary) {
+        guard let transcriptPath = session.transcriptPath else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: transcriptPath)])
+    }
+
+    func openServer(_ server: LocalDevServer) {
+        guard let url = URL(string: server.url) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    func copyServerURL(_ server: LocalDevServer) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(server.url, forType: .string)
+    }
+
+    func stopServer(_ server: LocalDevServer) {
+        guard server.processID > 1 else { return }
+        kill(pid_t(server.processID), SIGTERM)
+        workbench = AgentWorkbenchCollector().collect()
+    }
+
     func historyDashboard() -> UsageHistoryDashboard {
         let monitoredProviders = AppPreferences.monitoredProviders
         let visibleSummary = UsageSummary(snapshots: (summary?.snapshots ?? []).filter { monitoredProviders.contains($0.provider) })
@@ -641,11 +719,12 @@ private final class DashboardController: ObservableObject {
         NotificationBridge.deliver(crossingAlerts + staleAlerts)
     }
 
-    private static func loadUsageOffMain() async -> (summary: UsageSummary, error: String?) {
+    private static func loadUsageOffMain() async -> (summary: UsageSummary, workbench: AgentWorkbenchSnapshot, error: String?) {
         await Task.detached(priority: .userInitiated) {
             let monitoredProviders = AppPreferences.monitoredProviders
             var snapshots: [UsageSnapshot] = []
             var warnings: [String] = []
+            let workbench = AgentWorkbenchCollector().collect()
 
             do {
                 let localSnapshots = try LocalUsageCollector(planPreferences: AppPreferences.localPlanPreferences()).collect()
@@ -715,7 +794,7 @@ private final class DashboardController: ObservableObject {
             snapshots = UsageBudgetApplier.apply(preferences: AppPreferences.budgetPreferences(), to: snapshots)
 
             let summary = UsageSummary(snapshots: snapshots)
-            return (summary, warnings.isEmpty ? nil : warnings.joined(separator: " · "))
+            return (summary, workbench, warnings.isEmpty ? nil : warnings.joined(separator: " · "))
         }.value
     }
 }
@@ -749,6 +828,12 @@ private struct DashboardActions {
     let history: () -> Void
     let copyStatus: () -> Void
     let copyDiagnostics: () -> Void
+    let openQuickRoute: (AgentQuickRoute) -> Void
+    let copyQuickRoute: (AgentQuickRoute) -> Void
+    let revealSession: (AgentSessionSummary) -> Void
+    let openServer: (LocalDevServer) -> Void
+    let copyServer: (LocalDevServer) -> Void
+    let stopServer: (LocalDevServer) -> Void
     let quit: () -> Void
 }
 
@@ -870,10 +955,19 @@ private struct DashboardView: View {
                 .onPreferenceChange(LaneFramePreferenceKey.self) { frames in
                     rowFrames = frames
                 }
-                .frame(maxHeight: showLaneDetails ? 430 : 390)
+                .frame(maxHeight: showLaneDetails ? 300 : 260)
                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             ResetContextStrip(items: model.resetTimeline)
+            WorkbenchSection(
+                snapshot: controller.workbench,
+                openQuickRoute: actions.openQuickRoute,
+                copyQuickRoute: actions.copyQuickRoute,
+                revealSession: actions.revealSession,
+                openServer: actions.openServer,
+                copyServer: actions.copyServer,
+                stopServer: actions.stopServer
+            )
             if !model.setupGuidance.isEmpty {
                 SetupGuidanceView(items: model.setupGuidance)
             }
@@ -1093,6 +1187,191 @@ private struct ResetContextStrip: View {
             }
             .accessibilityLabel(items.map { "\($0.title) resets in \($0.value)" }.joined(separator: ", "))
         }
+    }
+}
+
+private struct WorkbenchSection: View {
+    let snapshot: AgentWorkbenchSnapshot
+    let openQuickRoute: (AgentQuickRoute) -> Void
+    let copyQuickRoute: (AgentQuickRoute) -> Void
+    let revealSession: (AgentSessionSummary) -> Void
+    let openServer: (LocalDevServer) -> Void
+    let copyServer: (LocalDevServer) -> Void
+    let stopServer: (LocalDevServer) -> Void
+
+    private var existingRoutes: [AgentQuickRoute] {
+        snapshot.routes.filter(\.exists)
+    }
+
+    var body: some View {
+        if !snapshot.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text("Workbench")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                    Text(summaryLabel)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary.opacity(0.75))
+                    Spacer(minLength: 0)
+                }
+
+                HStack(alignment: .top, spacing: 8) {
+                    if !snapshot.sessions.isEmpty {
+                        workbenchGroup(title: "Sessions", systemName: "terminal") {
+                            ForEach(snapshot.sessions.prefix(3)) { session in
+                                WorkbenchSessionRow(session: session, reveal: { revealSession(session) })
+                            }
+                        }
+                    }
+
+                    if !snapshot.devServers.isEmpty {
+                        workbenchGroup(title: "Servers", systemName: "network") {
+                            ForEach(snapshot.devServers.prefix(3)) { server in
+                                WorkbenchServerRow(
+                                    server: server,
+                                    open: { openServer(server) },
+                                    copy: { copyServer(server) },
+                                    stop: { stopServer(server) }
+                                )
+                            }
+                        }
+                    }
+
+                    if !existingRoutes.isEmpty {
+                        workbenchGroup(title: "Routes", systemName: "folder") {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 4)], alignment: .leading, spacing: 4) {
+                                ForEach(existingRoutes.prefix(6)) { route in
+                                    WorkbenchRouteButton(
+                                        route: route,
+                                        open: { openQuickRoute(route) },
+                                        copy: { copyQuickRoute(route) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(10)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.62), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+    }
+
+    private var summaryLabel: String {
+        let parts = [
+            snapshot.sessions.isEmpty ? nil : "\(snapshot.sessions.count) sessions",
+            snapshot.devServers.isEmpty ? nil : "\(snapshot.devServers.count) servers",
+            existingRoutes.isEmpty ? nil : "\(existingRoutes.count) routes"
+        ].compactMap { $0 }
+        return parts.joined(separator: " · ")
+    }
+
+    private func workbenchGroup<Content: View>(title: String, systemName: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label(title, systemImage: systemName)
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct WorkbenchSessionRow: View {
+    let session: AgentSessionSummary
+    let reveal: () -> Void
+
+    var body: some View {
+        Button(action: reveal) {
+            HStack(spacing: 6) {
+                providerBadge(session.provider.shortName)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(session.project)
+                        .font(.system(size: 10, weight: .semibold))
+                        .lineLimit(1)
+                    Text("\(session.status) · \(session.detail)")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Reveal session log")
+    }
+
+    private func providerBadge(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 8, weight: .bold, design: .rounded))
+            .foregroundStyle(.secondary)
+            .frame(width: 28, height: 16)
+            .background(Color(nsColor: .separatorColor).opacity(0.18), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+    }
+}
+
+private struct WorkbenchServerRow: View {
+    let server: LocalDevServer
+    let open: () -> Void
+    let copy: () -> Void
+    let stop: () -> Void
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Button(action: open) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(":\(server.port)")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                    Text(server.command)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .help("Open \(server.url)")
+
+            Button(action: copy) {
+                Image(systemName: "doc.on.doc")
+                    .font(.system(size: 9, weight: .semibold))
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.plain)
+            .help("Copy server URL")
+
+            Button(action: stop) {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 8, weight: .semibold))
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.plain)
+            .help("Stop process \(server.processID)")
+        }
+    }
+}
+
+private struct WorkbenchRouteButton: View {
+    let route: AgentQuickRoute
+    let open: () -> Void
+    let copy: () -> Void
+
+    var body: some View {
+        Menu {
+            Button("Open", action: open)
+            Button("Copy path", action: copy)
+        } label: {
+            Label(route.title, systemImage: "folder")
+                .font(.system(size: 9, weight: .semibold))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .help(route.path)
     }
 }
 
