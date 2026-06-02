@@ -207,13 +207,225 @@ struct GeneralPane: View {
     }
 }
 struct ProvidersPane: View {
-    var body: some View { SettingsPane(title: "Providers", subtitle: "Turn sources on or off.") { EmptyView() } }
+    @AppStorage(AppPreferences.monitorCodexEnabledKey) private var monitorCodexEnabled = true
+    @AppStorage(AppPreferences.monitorCursorEnabledKey) private var monitorCursorEnabled = true
+    @AppStorage(AppPreferences.monitorClaudeCodeEnabledKey) private var monitorClaudeCodeEnabled = true
+    @AppStorage(AppPreferences.monitorOpenCodeEnabledKey) private var monitorOpenCodeEnabled = true
+    @AppStorage(AppPreferences.monitorOpenRouterEnabledKey) private var monitorOpenRouterEnabled = true
+    @AppStorage(AppPreferences.monitorOpenAIEnabledKey) private var monitorOpenAIEnabled = true
+    @AppStorage(AppPreferences.claudeCodePlanLabelKey) private var claudeCodePlanLabel = ""
+    @AppStorage(AppPreferences.cursorPlanOverrideKey) private var cursorPlanOverride = ""
+
+    var body: some View {
+        SettingsPane(title: "Providers",
+                     subtitle: "Turn sources on or off. Disabling one removes it from polling, alerts, history, and the exported status snapshot.") {
+            SettingsGroup(title: "Monitored sources") {
+                monitorRow("Codex", icon: "cpu", helper: "Account quota plus local fallback from ~/.codex.", isOn: $monitorCodexEnabled)
+                divider
+                monitorRow("Cursor", icon: "cursorarrow.rays", helper: "Local account state plus live current-period usage.", isOn: $monitorCursorEnabled)
+                divider
+                monitorRow("Claude Code", icon: "sparkles", helper: "Local token estimates from ~/.claude/projects.", isOn: $monitorClaudeCodeEnabled)
+                divider
+                monitorRow("OpenCode", icon: "chevron.left.forwardslash.chevron.right", helper: "Local token estimates from OpenCode SQLite.", isOn: $monitorOpenCodeEnabled)
+                divider
+                monitorRow("OpenRouter", icon: "point.3.connected.trianglepath.dotted", helper: "Official key and credit endpoints when a key is saved.", isOn: $monitorOpenRouterEnabled)
+                divider
+                monitorRow("OpenAI", icon: "brain", helper: "Official organization costs and token usage when an admin key is saved.", isOn: $monitorOpenAIEnabled)
+            }
+            SettingsGroup(title: "Plan label overrides") {
+                SettingsRow(icon: "tag", title: "Codex",
+                            helper: "Exact plan and quota from ~/.codex/auth.json when available.") {
+                    Text("Auto")
+                        .font(.fuelText(12, weight: .semibold)).foregroundStyle(FuelTheme.text3)
+                }
+                divider
+                SettingsRow(icon: "tag", title: "Claude Code",
+                            helper: "Override the detected plan label only if needed.") {
+                    TextField("Auto", text: $claudeCodePlanLabel)
+                        .textFieldStyle(.roundedBorder).frame(width: 160)
+                }
+                divider
+                SettingsRow(icon: "tag", title: "Cursor",
+                            helper: "Override the detected plan label only if needed.") {
+                    TextField("Auto", text: $cursorPlanOverride)
+                        .textFieldStyle(.roundedBorder).frame(width: 160)
+                }
+            }
+        }
+    }
+
+    private var divider: some View {
+        Divider().background(FuelTheme.divider).padding(.leading, 14)
+    }
+
+    private func monitorRow(_ provider: String, icon: String, helper: String, isOn: Binding<Bool>) -> some View {
+        SettingsRow(icon: icon, title: provider, helper: helper) {
+            Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch).tint(FuelTheme.accent)
+        }
+    }
 }
+
+/// Keychain-backed key entry with Connected state + sanitized status line.
+struct KeyField: View {
+    let title: String
+    let helper: String
+    @Binding var value: String
+    let isConnected: Bool
+    let status: String
+    let onSave: () -> Void
+    let onClear: () -> Void
+
+    var body: some View {
+        SettingsRow(icon: "key", title: title, helper: helper) {
+            VStack(alignment: .trailing, spacing: 4) {
+                HStack(spacing: 6) {
+                    if isConnected {
+                        Label("Connected", systemImage: "checkmark.circle.fill")
+                            .font(.fuelText(11, weight: .semibold)).foregroundStyle(FuelTheme.safe)
+                    }
+                    SecureField("Paste key", text: $value).textFieldStyle(.roundedBorder).frame(width: 180)
+                    Button("Save", action: onSave).buttonStyle(.bordered)
+                    if isConnected { Button("Clear", action: onClear).buttonStyle(.borderless) }
+                }
+                if !status.isEmpty { Text(status).font(.fuelText(10.5)).foregroundStyle(FuelTheme.text3) }
+            }
+        }
+    }
+}
+
 struct APIKeysPane: View {
-    var body: some View { SettingsPane(title: "API Keys", subtitle: "Keys are stored in the macOS Keychain.") { EmptyView() } }
+    @State private var openRouterKey = ""
+    @State private var openAIAdminKey = ""
+    @State private var openRouterConnected = false
+    @State private var openAIConnected = false
+    @State private var openRouterStatus = "Stored in macOS Keychain. Not synced."
+    @State private var openAIStatus = "Stored in macOS Keychain. Admin key is used only for OpenAI usage/cost APIs."
+
+    var body: some View {
+        SettingsPane(title: "API Keys",
+                     subtitle: "Keys are stored in the macOS Keychain and used only for official usage and cost APIs.") {
+            SettingsGroup(title: "OpenRouter") {
+                KeyField(title: "OpenRouter API key",
+                         helper: "Enables official key and credit endpoints.",
+                         value: $openRouterKey,
+                         isConnected: openRouterConnected,
+                         status: openRouterStatus,
+                         onSave: saveOpenRouter,
+                         onClear: clearOpenRouter)
+            }
+            SettingsGroup(title: "OpenAI") {
+                KeyField(title: "OpenAI Admin key",
+                         helper: "Enables official organization cost and usage polling.",
+                         value: $openAIAdminKey,
+                         isConnected: openAIConnected,
+                         status: openAIStatus,
+                         onSave: saveOpenAI,
+                         onClear: clearOpenAI)
+            }
+        }
+        .onAppear(perform: refresh)
+    }
+
+    private func refresh() {
+        openRouterKey = KeychainStore.readOpenRouterKey() ?? ""
+        openAIAdminKey = KeychainStore.readOpenAIAdminKey() ?? ""
+        openRouterConnected = !openRouterKey.isEmpty
+        openAIConnected = !openAIAdminKey.isEmpty
+    }
+
+    private func saveOpenRouter() {
+        do {
+            try KeychainStore.saveOpenRouterKey(openRouterKey)
+            openRouterConnected = !openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            openRouterStatus = "OpenRouter key saved. Refresh will use it for live API polling."
+        } catch {
+            openRouterStatus = "Could not save key: \(error.localizedDescription)"
+        }
+    }
+
+    private func clearOpenRouter() {
+        KeychainStore.deleteOpenRouterKey()
+        openRouterKey = ""
+        openRouterConnected = false
+        openRouterStatus = "OpenRouter key deleted."
+    }
+
+    private func saveOpenAI() {
+        do {
+            try KeychainStore.saveOpenAIAdminKey(openAIAdminKey)
+            openAIConnected = !openAIAdminKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            openAIStatus = "OpenAI Admin key saved. Refresh will use it for cost and usage polling."
+        } catch {
+            openAIStatus = "Could not save key: \(error.localizedDescription)"
+        }
+    }
+
+    private func clearOpenAI() {
+        KeychainStore.deleteOpenAIAdminKey()
+        openAIAdminKey = ""
+        openAIConnected = false
+        openAIStatus = "OpenAI Admin key deleted."
+    }
 }
+
 struct AlertsPane: View {
-    var body: some View { SettingsPane(title: "Alerts", subtitle: "Threshold notifications per provider.") { EmptyView() } }
+    @AppStorage(AppPreferences.alert50EnabledKey) private var alert50Enabled = false
+    @AppStorage(AppPreferences.alert75EnabledKey) private var alert75Enabled = true
+    @AppStorage(AppPreferences.alert90EnabledKey) private var alert90Enabled = true
+    @AppStorage(AppPreferences.alert100EnabledKey) private var alert100Enabled = true
+    @AppStorage(AppPreferences.staleWarningsEnabledKey) private var staleWarningsEnabled = true
+    @AppStorage(AppPreferences.codexAlertProfileKey) private var codexAlertProfile = AlertThresholdProfile.inherit.rawValue
+    @AppStorage(AppPreferences.cursorAlertProfileKey) private var cursorAlertProfile = AlertThresholdProfile.inherit.rawValue
+    @AppStorage(AppPreferences.openRouterAlertProfileKey) private var openRouterAlertProfile = AlertThresholdProfile.inherit.rawValue
+    @AppStorage(AppPreferences.claudeCodeAlertProfileKey) private var claudeCodeAlertProfile = AlertThresholdProfile.inherit.rawValue
+
+    var body: some View {
+        SettingsPane(title: "Alerts",
+                     subtitle: "Choose which thresholds notify you, and tune notifications per provider.") {
+            SettingsGroup(title: "Notification thresholds") {
+                toggleRow("50%", icon: "bell", helper: "Notify when usage crosses 50% of a lane.", isOn: $alert50Enabled)
+                divider
+                toggleRow("75%", icon: "bell", helper: "Notify when usage crosses 75% of a lane.", isOn: $alert75Enabled)
+                divider
+                toggleRow("90%", icon: "bell", helper: "Notify when usage crosses 90% of a lane.", isOn: $alert90Enabled)
+                divider
+                toggleRow("100%", icon: "bell.badge", helper: "Notify when a lane is exhausted.", isOn: $alert100Enabled)
+                divider
+                toggleRow("Stale data warnings", icon: "clock.badge.exclamationmark",
+                          helper: "Warn when a provider's data goes stale.", isOn: $staleWarningsEnabled)
+            }
+            SettingsGroup(title: "Per-provider alert profile") {
+                profileRow("Codex", selection: $codexAlertProfile)
+                divider
+                profileRow("Cursor", selection: $cursorAlertProfile)
+                divider
+                profileRow("OpenRouter", selection: $openRouterAlertProfile)
+                divider
+                profileRow("Claude Code", selection: $claudeCodeAlertProfile)
+            }
+        }
+    }
+
+    private var divider: some View {
+        Divider().background(FuelTheme.divider).padding(.leading, 14)
+    }
+
+    private func toggleRow(_ title: String, icon: String, helper: String, isOn: Binding<Bool>) -> some View {
+        SettingsRow(icon: icon, title: title, helper: helper) {
+            Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch).tint(FuelTheme.accent)
+        }
+    }
+
+    private func profileRow(_ provider: String, selection: Binding<String>) -> some View {
+        let profile = AlertThresholdProfile(rawValue: selection.wrappedValue) ?? .inherit
+        return SettingsRow(icon: "slider.horizontal.3", title: provider, helper: profile.detail) {
+            Picker("", selection: selection) {
+                ForEach(AlertThresholdProfile.allCases) { profile in
+                    Text(profile.title).tag(profile.rawValue)
+                }
+            }.pickerStyle(.menu).labelsHidden().fixedSize()
+        }
+    }
 }
 struct MenuBarPane: View {
     @AppStorage(AppPreferences.menuBarDisplayModeKey) private var displayMode = MenuBarDisplayMode.detailed.rawValue

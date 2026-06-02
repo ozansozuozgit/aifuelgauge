@@ -431,7 +431,7 @@ enum AppPreferences {
     }
 }
 
-private enum AlertThresholdProfile: String, CaseIterable, Identifiable {
+enum AlertThresholdProfile: String, CaseIterable, Identifiable {
     case inherit
     case early
     case standard
@@ -2590,7 +2590,7 @@ private struct AlertProfileRow: View {
     }
 }
 
-private enum KeychainStore {
+enum KeychainStore {
     private static let service = "AI Fuel Gauge"
     private static let openRouterAccount = "openrouter-api-key"
     private static let openAIAdminAccount = "openai-admin-api-key"
