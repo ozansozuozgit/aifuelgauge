@@ -51,7 +51,6 @@ final class AIFuelGaugeAppDelegate: NSObject, NSApplicationDelegate {
                     copyQuickRoute: { [weak controller] route in controller?.copyQuickRoute(route) },
                     revealSession: { [weak controller] session in controller?.revealSession(session) },
                     openServer: { [weak controller] server in controller?.openServer(server) },
-                    copyServer: { [weak controller] server in controller?.copyServerURL(server) },
                     stopServer: { [weak controller] server in controller?.stopServer(server) },
                     copyRow: { row in
                         let text = row.receiptText.isEmpty ? row.value : row.receiptText
@@ -396,10 +395,6 @@ enum AppPreferences {
         UserDefaults.standard.stringArray(forKey: laneOrderKey) ?? []
     }
 
-    static func saveLaneOrder(_ order: [String]) {
-        UserDefaults.standard.set(order, forKey: laneOrderKey)
-    }
-
     static func budgetPreferences() -> UsageBudgetPreferences {
         UsageBudgetPreferences(
             openAIMonthlyUSD: double(for: openAIMonthlyBudgetUSDKey),
@@ -657,11 +652,6 @@ final class DashboardController: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
-    func copyServerURL(_ server: LocalDevServer) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(server.url, forType: .string)
-    }
-
     func stopServer(_ server: LocalDevServer) {
         guard server.processID > 1 else { return }
         kill(pid_t(server.processID), SIGTERM)
@@ -849,7 +839,6 @@ struct DashboardActions {
     let copyQuickRoute: (AgentQuickRoute) -> Void
     let revealSession: (AgentSessionSummary) -> Void
     let openServer: (LocalDevServer) -> Void
-    let copyServer: (LocalDevServer) -> Void
     let stopServer: (LocalDevServer) -> Void
     let copyRow: (DashboardRow) -> Void
     let openRow: (DashboardRow) -> Void
@@ -861,22 +850,12 @@ enum LaneFilter: Hashable {
     case all
 }
 
-private struct LaneFramePreferenceKey: PreferenceKey {
-    static let defaultValue: [String: CGRect] = [:]
-
-    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, newValue in newValue })
-    }
-}
-
-
 struct WorkbenchSection: View {
     let snapshot: AgentWorkbenchSnapshot
     let openQuickRoute: (AgentQuickRoute) -> Void
     let copyQuickRoute: (AgentQuickRoute) -> Void
     let revealSession: (AgentSessionSummary) -> Void
     let openServer: (LocalDevServer) -> Void
-    let copyServer: (LocalDevServer) -> Void
     let stopServer: (LocalDevServer) -> Void
 
     @State private var isExpanded: Bool = false
@@ -936,7 +915,6 @@ struct WorkbenchSection: View {
                                     WorkbenchServerRow(
                                         server: server,
                                         open: { openServer(server) },
-                                        copy: { copyServer(server) },
                                         stop: { stopServer(server) }
                                     )
                                 }
@@ -1036,7 +1014,6 @@ private struct WorkbenchSessionRow: View {
 private struct WorkbenchServerRow: View {
     let server: LocalDevServer
     let open: () -> Void
-    let copy: () -> Void
     let stop: () -> Void
 
     var body: some View {
@@ -1147,264 +1124,6 @@ private struct SetupGuidanceView: View {
             }
         }
         .accessibilityLabel(items.map { "\($0.title): \($0.status). \($0.action)" }.joined(separator: ", "))
-    }
-}
-
-private struct InsightStrip: View {
-    let text: String
-    let state: UsageState
-
-    var body: some View {
-        HStack(spacing: 9) {
-            Image(systemName: iconName)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(color(for: state))
-                .frame(width: 18)
-            Text(text)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.primary.opacity(0.86))
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 9)
-        .background(color(for: state).opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(color(for: state).opacity(0.20), lineWidth: 1)
-        )
-    }
-
-    private var iconName: String {
-        switch state {
-        case .safe: "bolt.fill"
-        case .caution: "speedometer"
-        case .critical, .exhausted: "exclamationmark.triangle.fill"
-        case .unknown: "questionmark.circle.fill"
-        }
-    }
-}
-
-private struct UnknownGaugeView: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Connect a quota source")
-                .font(.system(size: 12, weight: .semibold))
-            Text("Local logs are visible. Exact limits need a provider API key or a tool that exposes rate-limit metadata.")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.70), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-}
-
-private struct EmptySourcesView: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text("No live sources yet")
-                .font(.system(size: 12, weight: .semibold))
-            Text("Open Settings to add OpenRouter, or use Claude Code/Codex locally and refresh.")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.70), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-}
-
-private struct SourceRowView: View {
-    let row: DashboardRow
-    let showsDetails: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 9) {
-                Circle()
-                    .fill(color(for: row.state))
-                    .frame(width: 7, height: 7)
-                    .overlay(Circle().stroke(.white.opacity(0.35), lineWidth: 0.5))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(row.title)
-                        .font(.system(size: 12, weight: .semibold))
-                        .lineLimit(1)
-                    Text(row.detail)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(showsDetails ? 2 : 1)
-                }
-                Spacer(minLength: 8)
-                Text(row.value)
-                    .font(.system(size: 11, weight: .semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(row.state == .unknown ? .secondary : .primary)
-                    .lineLimit(1)
-                Button {
-                    copyToPasteboard(row.receiptText)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16, height: 16)
-                }
-                .buttonStyle(.plain)
-                .help("Copy lane receipt")
-                if let dashboardURL = row.dashboardURL, let url = URL(string: dashboardURL) {
-                    Button {
-                        NSWorkspace.shared.open(url)
-                    } label: {
-                        Image(systemName: "arrow.up.forward.square")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 16, height: 16)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Open provider dashboard")
-                }
-            }
-            if let percent = row.meterPercent {
-                MiniMeter(
-                    percent: percent,
-                    label: meterLabel(for: row),
-                    accessibilityLabel: row.meterLabel ?? row.value,
-                    state: row.state
-                )
-                    .padding(.leading, 16)
-            }
-            if showsDetails, row.trendPercents.count >= 2 {
-                UsageSparkline(samples: row.trendPercents, state: row.state)
-                    .frame(height: 18)
-                    .padding(.leading, 16)
-                    .accessibilityLabel("Recent usage trend")
-                if let trendCaption = row.trendCaption {
-                    Text(trendCaption)
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary.opacity(0.72))
-                        .padding(.leading, 16)
-                }
-            }
-            if let paceCaption = row.paceCaption, showsDetails {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: paceCaption.localizedCaseInsensitiveContains("warning") ? "speedometer" : "checkmark.circle.fill")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(paceCaption.localizedCaseInsensitiveContains("warning") ? Color.orange : color(for: row.state).opacity(0.82))
-                        .frame(width: 10)
-                    Text(paceCaption)
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary.opacity(0.84))
-                        .lineLimit(2)
-                }
-                .padding(.leading, 16)
-            }
-            if showsDetails, !row.explanation.isEmpty {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: row.confidence == .exact ? "checkmark.seal.fill" : "info.circle.fill")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(color(for: row.state).opacity(row.confidence == .unknown ? 0.65 : 0.95))
-                        .frame(width: 10)
-                    Text(row.explanation)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary.opacity(0.82))
-                        .lineLimit(2)
-                }
-                .padding(.leading, 16)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 10)
-        .frame(minHeight: showsDetails ? nil : 76, alignment: .topLeading)
-    }
-
-    private func meterLabel(for row: DashboardRow) -> String? {
-        guard let label = row.meterLabel?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty else {
-            return nil
-        }
-        return label.localizedCaseInsensitiveCompare(row.value.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
-            ? nil
-            : label
-    }
-}
-
-private struct UsageSparkline: View {
-    let samples: [Double]
-    let state: UsageState
-
-    var body: some View {
-        GeometryReader { proxy in
-            let clamped = samples.map { min(max($0, 0), 1) }
-            Path { path in
-                guard clamped.count >= 2, proxy.size.width > 0, proxy.size.height > 0 else { return }
-                let step = proxy.size.width / CGFloat(clamped.count - 1)
-                for (index, sample) in clamped.enumerated() {
-                    let x = CGFloat(index) * step
-                    let y = proxy.size.height - (CGFloat(sample) * proxy.size.height)
-                    if index == 0 {
-                        path.move(to: CGPoint(x: x, y: y))
-                    } else {
-                        path.addLine(to: CGPoint(x: x, y: y))
-                    }
-                }
-            }
-            .stroke(color(for: state).opacity(0.78), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
-
-            Path { path in
-                let y = proxy.size.height * 0.25
-                path.move(to: CGPoint(x: 0, y: y))
-                path.addLine(to: CGPoint(x: proxy.size.width, y: y))
-            }
-            .stroke(Color.secondary.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
-        }
-    }
-}
-
-private struct MiniMeter: View {
-    let percent: Double
-    let label: String?
-    let accessibilityLabel: String
-    let state: UsageState
-
-    var body: some View {
-        HStack(spacing: 8) {
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.quaternary)
-                    Capsule()
-                        .fill(color(for: state).opacity(0.88))
-                        .frame(width: max(5, proxy.size.width * min(max(percent, 0), 1)))
-                }
-            }
-            .frame(height: 5)
-            if let label {
-                Text(label)
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(color(for: state))
-                    .lineLimit(1)
-            }
-        }
-        .accessibilityLabel(accessibilityLabel)
-    }
-}
-
-private struct FooterButton: View {
-    let title: String
-    let systemName: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 11, weight: .semibold))
-                .frame(width: 28, height: 28)
-                .contentShape(Capsule())
-            .background(.quaternary, in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .help(title)
-        .accessibilityLabel(title)
     }
 }
 

@@ -134,8 +134,20 @@ struct SettingsView: View {
         }
     }
 
-    private var appVersionString: String {
-        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String).map { "v\($0)" } ?? "local build"
+    private var appVersionString: String { AppVersionInfo.displayString }
+}
+
+// MARK: - App version
+
+enum AppVersionInfo {
+    /// Raw short version string from the bundle, if present.
+    static var shortVersion: String? {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    }
+
+    /// User-facing version label, e.g. "v1.2.3" or "local build".
+    static var displayString: String {
+        shortVersion.map { "v\($0)" } ?? "local build"
     }
 }
 
@@ -585,13 +597,9 @@ struct AboutPane: View {
         }
     }
 
-    private var currentAppVersion: String? {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-    }
+    private var currentAppVersion: String? { AppVersionInfo.shortVersion }
 
-    private var appVersionString: String {
-        currentAppVersion.map { "v\($0)" } ?? "local build"
-    }
+    private var appVersionString: String { AppVersionInfo.displayString }
 
     private func checkForUpdates() {
         isCheckingForUpdates = true

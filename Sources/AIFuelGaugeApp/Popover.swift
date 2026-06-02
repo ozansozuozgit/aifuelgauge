@@ -166,6 +166,11 @@ struct FocusPill: View {
     }
 }
 
+private func heroPercentText(_ row: DashboardRow) -> String {
+    guard let p = row.meterPercent else { return "—" }
+    return "\(Int((p * 100).rounded()))%"
+}
+
 struct HeroFeaturedCard: View {
     let row: DashboardRow
     let allRows: [DashboardRow]
@@ -176,7 +181,7 @@ struct HeroFeaturedCard: View {
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             ArcGauge(percent: row.meterPercent ?? 0, state: row.state,
-                     value: percentText, caption: "USED")
+                     value: heroPercentText(row), caption: "USED")
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("TIGHTEST LANE").font(.fuelEyebrow).foregroundStyle(FuelTheme.text3)
@@ -204,11 +209,6 @@ struct HeroFeaturedCard: View {
         }
         .fuelCard(radius: FuelTheme.radiusLG, padding: 16)
     }
-
-    private var percentText: String {
-        guard let p = row.meterPercent else { return "—" }
-        return "\(Int((p * 100).rounded()))%"
-    }
 }
 
 struct HeroTrioCard: View {
@@ -219,7 +219,7 @@ struct HeroTrioCard: View {
             ForEach(rows) { row in
                 VStack(spacing: 6) {
                     ArcGauge(percent: row.meterPercent ?? 0, state: row.state,
-                             value: percentText(row), caption: "", diameter: 84, lineWidth: 8)
+                             value: heroPercentText(row), caption: "", diameter: 84, lineWidth: 8)
                     Text(row.title).font(.fuelText(12.5, weight: .semibold)).foregroundStyle(FuelTheme.text)
                     Text(row.detail).font(.fuelText(11)).foregroundStyle(FuelTheme.text3)
                         .lineLimit(1)
@@ -228,11 +228,6 @@ struct HeroTrioCard: View {
             }
         }
         .fuelCard(radius: FuelTheme.radiusLG, padding: 16)
-    }
-
-    private func percentText(_ row: DashboardRow) -> String {
-        guard let p = row.meterPercent else { return "—" }
-        return "\(Int((p * 100).rounded()))%"
     }
 }
 
@@ -403,7 +398,6 @@ struct DashboardView: View {
                 copyQuickRoute: actions.copyQuickRoute,
                 revealSession: actions.revealSession,
                 openServer: actions.openServer,
-                copyServer: actions.copyServer,
                 stopServer: actions.stopServer
             )
             ActionBar(
