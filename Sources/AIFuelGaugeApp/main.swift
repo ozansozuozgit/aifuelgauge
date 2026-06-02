@@ -283,6 +283,7 @@ private enum AppPreferences {
     static let refreshIntervalSecondsKey = "refreshIntervalSeconds"
     static let menuBarDisplayModeKey = "menuBarDisplayMode"
     static let menuBarProviderFocusKey = "menuBarProviderFocus"
+    static let heroLayoutKey = "heroLayout"
     static let laneOrderKey = "laneOrder"
     static let openAIMonthlyBudgetUSDKey = "openAIMonthlyBudgetUSD"
     static let cursorMonthlyBudgetUSDKey = "cursorMonthlyBudgetUSD"
@@ -310,6 +311,7 @@ private enum AppPreferences {
             refreshIntervalSecondsKey: 180,
             menuBarDisplayModeKey: MenuBarDisplayMode.detailed.rawValue,
             menuBarProviderFocusKey: MenuBarProviderFocus.auto.rawValue,
+            heroLayoutKey: HeroLayout.featured.rawValue,
             laneOrderKey: [],
             openAIMonthlyBudgetUSDKey: "",
             cursorMonthlyBudgetUSDKey: "",
@@ -373,6 +375,11 @@ private enum AppPreferences {
     static var menuBarProviderFocus: MenuBarProviderFocus {
         let rawValue = UserDefaults.standard.string(forKey: menuBarProviderFocusKey) ?? MenuBarProviderFocus.auto.rawValue
         return MenuBarProviderFocus(rawValue: rawValue) ?? .auto
+    }
+
+    static var heroLayout: HeroLayout {
+        let raw = UserDefaults.standard.string(forKey: heroLayoutKey) ?? HeroLayout.featured.rawValue
+        return HeroLayout(rawValue: raw) ?? .featured
     }
 
     static func laneOrder() -> [String] {
