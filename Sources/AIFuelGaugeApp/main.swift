@@ -965,7 +965,9 @@ private struct DashboardView: View {
                 .frame(maxHeight: showLaneDetails ? 300 : 260)
                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
-            ResetContextStrip(items: model.resetTimeline)
+            ResetContextStrip(items: model.resetTimeline.map {
+                ResetContextStrip.Item(eyebrow: $0.title, value: $0.value, caption: $0.detail, state: $0.state)
+            })
             WorkbenchSection(
                 snapshot: controller.workbench,
                 openQuickRoute: actions.openQuickRoute,
@@ -1160,42 +1162,6 @@ private struct LaneFramePreferenceKey: PreferenceKey {
     }
 }
 
-private struct ResetContextStrip: View {
-    let items: [DashboardResetItem]
-
-    var body: some View {
-        if !items.isEmpty {
-            HStack(spacing: 7) {
-                ForEach(Array(items.prefix(3).enumerated()), id: \.element.id) { index, item in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(index == 0 ? "Next reset" : "Reset")
-                            .font(.system(size: 8, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.secondary.opacity(0.72))
-                            .textCase(.uppercase)
-                        Text(item.value)
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .monospacedDigit()
-                            .lineLimit(1)
-                            .foregroundStyle(color(for: item.state))
-                        Text(item.title)
-                            .font(.system(size: 9, weight: .semibold))
-                            .lineLimit(1)
-                            .foregroundStyle(.primary.opacity(0.80))
-                        Text(item.detail)
-                            .font(.system(size: 8, weight: .medium))
-                            .lineLimit(1)
-                            .foregroundStyle(.secondary.opacity(0.82))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 7)
-                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.38), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                }
-            }
-            .accessibilityLabel(items.map { "\($0.title) resets in \($0.value)" }.joined(separator: ", "))
-        }
-    }
-}
 
 private struct WorkbenchSection: View {
     let snapshot: AgentWorkbenchSnapshot

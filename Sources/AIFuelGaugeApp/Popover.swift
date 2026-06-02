@@ -293,3 +293,66 @@ struct LaneRow: View {
         .buttonStyle(.plain)
     }
 }
+
+struct ResetCard: View {
+    let eyebrow: String
+    let value: String
+    let caption: String
+    let state: UsageState
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(eyebrow).font(.fuelEyebrow).foregroundStyle(FuelTheme.text3)
+            Text(value).font(.fuelMono(15)).foregroundStyle(FuelTheme.color(for: state))
+            Text(caption).font(.fuelText(11)).foregroundStyle(FuelTheme.text2).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fuelCard(radius: FuelTheme.radiusMD, padding: 10)
+    }
+}
+
+struct ResetContextStrip: View {
+    struct Item: Identifiable { let id = UUID(); let eyebrow: String; let value: String; let caption: String; let state: UsageState }
+    let items: [Item]
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(items) { ResetCard(eyebrow: $0.eyebrow, value: $0.value, caption: $0.caption, state: $0.state) }
+        }
+    }
+}
+
+struct ActionBar: View {
+    let trustTally: String
+    let onRefresh: () -> Void
+    let onSettings: () -> Void
+    let onHistory: () -> Void
+    let onCopySnapshot: () -> Void
+    let onAbout: () -> Void
+    let onQuit: () -> Void
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.shield").font(.system(size: 10)).foregroundStyle(FuelTheme.safe)
+                Text(trustTally).font(.fuelText(11)).foregroundStyle(FuelTheme.text3)
+                Spacer()
+            }
+            HStack(spacing: 8) {
+                Button(action: onRefresh) {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }.buttonStyle(.borderedProminent).tint(FuelTheme.accent)
+                Button(action: onSettings) { Label("Settings", systemImage: "gearshape") }.buttonStyle(.bordered)
+                Button(action: onHistory) { Label("History", systemImage: "chart.xyaxis.line") }.buttonStyle(.bordered)
+                Spacer()
+                Menu {
+                    Button("Copy snapshot", action: onCopySnapshot)
+                    Button("About", action: onAbout)
+                    Divider()
+                    Button("Quit AI Fuel Gauge", action: onQuit)
+                } label: {
+                    Image(systemName: "ellipsis.circle").font(.system(size: 14)).foregroundStyle(FuelTheme.text3)
+                }.menuStyle(.borderlessButton).fixedSize()
+            }
+            .font(.fuelText(12, weight: .semibold))
+        }
+    }
+}
