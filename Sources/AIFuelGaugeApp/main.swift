@@ -1441,17 +1441,18 @@ private struct HistoryWindowView: View {
     @State private var copyMessage = "CSV includes lane IDs, timestamps, and percentages only."
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(dashboard.title)
-                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .font(.fuelText(18, weight: .bold))
+                        .foregroundStyle(FuelTheme.text)
                     Text(dashboard.subtitle)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .font(.fuelText(11))
+                        .foregroundStyle(FuelTheme.text2)
                     Text(copyMessage)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary.opacity(0.75))
+                        .font(.fuelText(9))
+                        .foregroundStyle(FuelTheme.text3)
                 }
                 Spacer()
                 Button {
@@ -1467,15 +1468,15 @@ private struct HistoryWindowView: View {
             if dashboard.items.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("No comparable history yet")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.fuelText(13, weight: .semibold))
+                        .foregroundStyle(FuelTheme.text)
                     Text("History appears after a few refreshes from sources with known limits. It stores lane IDs, timestamps, and percentages only.")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .font(.fuelText(11))
+                        .foregroundStyle(FuelTheme.text2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .fuelCard(radius: FuelTheme.radiusMD, padding: 14)
                 Spacer()
             } else {
                 ScrollView {
@@ -1490,7 +1491,7 @@ private struct HistoryWindowView: View {
         }
         .padding(18)
         .frame(minWidth: 520, minHeight: 420)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(FuelTheme.surface)
     }
 
     private func copyCSV() {
@@ -1507,48 +1508,58 @@ private struct HistoryLaneCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Circle()
-                    .fill(color(for: item.state))
+                    .fill(FuelTheme.color(for: item.state))
                     .frame(width: 8, height: 8)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.fuelText(13, weight: .semibold))
+                        .foregroundStyle(FuelTheme.text)
                         .lineLimit(1)
                     Text(item.detail)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .font(.fuelText(10))
+                        .foregroundStyle(FuelTheme.text3)
                 }
                 Spacer()
                 Text(item.latestValue)
-                    .font(.system(size: 22, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(color(for: item.state))
+                    .font(.fuelMono(22, weight: .semibold))
+                    .foregroundStyle(FuelTheme.color(for: item.state))
             }
 
-            UsageSparkline(samples: item.samples, state: item.state)
+            Sparkline(points: item.samples, state: item.state)
                 .frame(height: 34)
                 .accessibilityLabel("\(item.title) history trend")
 
+            Divider()
+                .background(FuelTheme.divider)
+
             HStack(spacing: 8) {
-                HistoryMetricPill(text: item.peakValue)
-                HistoryMetricPill(text: item.deltaValue)
+                HistoryMetricPill(label: "peak", value: item.peakValue, state: item.state)
+                HistoryMetricPill(label: "delta", value: item.deltaValue, state: item.state)
                 Spacer()
             }
         }
-        .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .fuelCard(radius: FuelTheme.radiusMD, padding: 12)
     }
 }
 
 private struct HistoryMetricPill: View {
-    let text: String
+    let label: String
+    let value: String
+    let state: UsageState
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.quaternary, in: Capsule())
+        HStack(spacing: 4) {
+            Text(value)
+                .font(.fuelMono(10))
+                .foregroundStyle(FuelTheme.color(for: state))
+            Text(label)
+                .font(.fuelEyebrow)
+                .foregroundStyle(FuelTheme.text3)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(FuelTheme.surfaceSunken, in: Capsule())
+        .overlay(Capsule().strokeBorder(FuelTheme.border.opacity(0.5)))
     }
 }
 
