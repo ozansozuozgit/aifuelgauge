@@ -1,4 +1,5 @@
 // Sources/AIFuelGaugeApp/Settings.swift
+import AppKit
 import SwiftUI
 import AIFuelGaugeCore
 
@@ -515,8 +516,109 @@ struct BudgetsPane: View {
     }
 }
 struct PrivacyPane: View {
-    var body: some View { SettingsPane(title: "Data & Privacy", subtitle: "All data stays on your Mac.") { EmptyView() } }
+    @State private var historyMessage = "History stores only lane IDs, timestamps, and percentages."
+
+    var body: some View {
+        SettingsPane(title: "Data & Privacy",
+                     subtitle: "All data stays on your Mac. History is local-only; clearing it is immediate and permanent.") {
+            SettingsGroup(title: "Local history") {
+                SettingsRow(icon: "clock.arrow.circlepath", title: "Usage history",
+                            helper: historyMessage) {
+                    HStack(spacing: 8) {
+                        Button("Reveal history") { revealHistory() }.buttonStyle(.bordered)
+                        Button("Clear history") { clearHistory() }.buttonStyle(.bordered)
+                    }
+                }
+            }
+        }
+    }
+
+    private func revealHistory() {
+        let historyURL = AppStoragePaths.historyURL
+        if FileManager.default.fileExists(atPath: historyURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([historyURL])
+            historyMessage = "Revealed usage-history.json in Finder."
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(at: historyURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            NSWorkspace.shared.open(historyURL.deletingLastPathComponent())
+            historyMessage = "History file has not been created yet. Opened its folder."
+        } catch {
+            historyMessage = "Could not open history folder: \(error.localizedDescription)"
+        }
+    }
+
+    private func clearHistory() {
+        do {
+            try UsageHistoryFileStore(fileURL: AppStoragePaths.historyURL).clear()
+            NotificationCenter.default.post(name: .aiFuelGaugeHistoryCleared, object: nil)
+            historyMessage = "Local usage history cleared."
+        } catch {
+            historyMessage = "Could not clear history: \(error.localizedDescription)"
+        }
+    }
 }
+
 struct AboutPane: View {
-    var body: some View { SettingsPane(title: "About", subtitle: "AI Fuel Gauge.") { EmptyView() } }
+    @State private var maintenanceMessage = "Use Releases for signed zips, or copy the Homebrew command for terminal updates."
+    @State private var isCheckingForUpdates = false
+
+    var body: some View {
+        SettingsPane(title: "About", subtitle: "Local-first AI usage gauge") {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("AI Fuel Gauge").font(.fuelText(15, weight: .bold)).foregroundStyle(FuelTheme.text)
+                Text(appVersionString).font(.fuelMono(12)).foregroundStyle(FuelTheme.text3)
+            }
+            SettingsGroup(title: "App maintenance") {
+                SettingsRow(icon: "arrow.down.circle", title: "Updates",
+                            helper: maintenanceMessage) {
+                    HStack(spacing: 8) {
+                        Button(isCheckingForUpdates ? "Checking" : "Check updates") { checkForUpdates() }
+                            .buttonStyle(.bordered)
+                            .disabled(isCheckingForUpdates)
+                        Button("Copy update command") { copyUpdateCommand() }.buttonStyle(.bordered)
+                        Button("Open releases") { openReleases() }.buttonStyle(.bordered)
+                    }
+                }
+            }
+        }
+    }
+
+    private var currentAppVersion: String? {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    }
+
+    private var appVersionString: String {
+        currentAppVersion.map { "v\($0)" } ?? "local build"
+    }
+
+    private func checkForUpdates() {
+        isCheckingForUpdates = true
+        maintenanceMessage = "Checking GitHub releases..."
+        Task {
+            let result: String
+            do {
+                let update = try await AppUpdateChecker().check(currentVersion: currentAppVersion)
+                result = update.message
+            } catch ConnectorError.badStatus(404) {
+                result = "No GitHub release is published yet."
+            } catch {
+                result = "Could not check releases. Use Open releases or try again later."
+            }
+            await MainActor.run { maintenanceMessage = result; isCheckingForUpdates = false }
+        }
+    }
+
+    private func copyUpdateCommand() {
+        let command = "brew upgrade --cask ai-fuel-gauge || brew install --cask https://raw.githubusercontent.com/ozansozuozgit/aifuelgauge/main/Casks/ai-fuel-gauge.rb"
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
+        maintenanceMessage = "Copied Homebrew update command."
+    }
+
+    private func openReleases() {
+        NSWorkspace.shared.open(URL(string: "https://github.com/ozansozuozgit/aifuelgauge/releases/latest")!)
+        maintenanceMessage = "Opened the latest GitHub release."
+    }
 }
