@@ -10,6 +10,23 @@
 
 ---
 
+## Spike results (Task 1 — confirmed on real machine 2026-06-03)
+
+- Credential file `~/.claude/.credentials.json` → `claudeAiOauth.{accessToken, refreshToken, expiresAt(ms)}`. **No `subscriptionType`** field.
+- Usage endpoint `GET https://api.anthropic.com/api/oauth/usage`, headers `Authorization: Bearer`, `anthropic-beta: oauth-2025-04-20`. Response is **snake_case**:
+  `five_hour`, `seven_day`, `seven_day_opus`, `seven_day_sonnet`, `seven_day_oauth_apps` (each `{utilization: Double, resets_at: ISO8601}` or null), plus `extra_usage{is_enabled, monthly_limit, used_credits, utilization, currency}`.
+  `resets_at` includes **microseconds + offset** (`2026-06-03T17:40:00.029958+00:00`) → needs tolerant date parsing.
+- **Token expires (~8h life) and was stale on disk → 401.** Refresh is mandatory:
+  `POST https://platform.claude.com/v1/oauth/token`, `Content-Type: application/x-www-form-urlencoded`, body `grant_type=refresh_token&refresh_token=…&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e`.
+  - **Cloudflare blocks default/again Python & Safari-ish UAs (error 1010 / 429).** A CLI-style `User-Agent` (`claude-cli/1.0.0 (external)`) passed. Set an explicit User-Agent on requests.
+  - Response: `access_token`, `refresh_token` (**rotates** — must persist), `expires_in`, `scope`, `token_type`, `token_uuid`, `account`, `organization`.
+  - Plan tier lives in the refresh response's `organization`/`account`, not in usage or the creds file. **Plan label optional for Phase 1** (enrich later).
+- **Decision (user-approved):** the app refreshes when the token is expired and **writes the rotated credentials back** to `~/.claude/.credentials.json` atomically (temp file + `os.replace`, perms 600), co-owning the credential like Claude Code itself.
+
+This adds **Task 2b (ClaudeCredentialStore: refresh + write-back)** below, and Task 4 now ensures a valid token before fetching.
+
+---
+
 ## File structure
 
 - Create: `Sources/AIFuelGaugeCore/ClaudeOAuthConnector.swift` — credential reader, response models, parser, connector.
