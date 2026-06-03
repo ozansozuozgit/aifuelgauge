@@ -171,6 +171,23 @@ private func heroPercentText(_ row: DashboardRow) -> String {
     return "\(Int((p * 100).rounded()))%"
 }
 
+/// Trims noisy trailing segments (masked email, "account", "acct …", "now")
+/// from a lane's detail line so it stays concise in the popover.
+func conciseDetail(_ detail: String) -> String {
+    detail
+        .split(separator: "·")
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { segment in
+            let lower = segment.lowercased()
+            return !segment.isEmpty
+                && !segment.contains("@")
+                && lower != "now"
+                && lower != "account"
+                && !lower.hasPrefix("acct")
+        }
+        .joined(separator: " · ")
+}
+
 struct HeroFeaturedCard: View {
     let row: DashboardRow
     let allRows: [DashboardRow]
@@ -190,7 +207,7 @@ struct HeroFeaturedCard: View {
                 }
                 Text(row.title).font(.fuelText(16, weight: .bold)).foregroundStyle(FuelTheme.text)
                     .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                Text(row.detail).font(.fuelText(12)).foregroundStyle(FuelTheme.text2)
+                Text(conciseDetail(row.detail)).font(.fuelText(12)).foregroundStyle(FuelTheme.text2)
                     .lineLimit(2)
                 if !insight.isEmpty {
                     HStack(alignment: .top, spacing: 6) {
@@ -249,7 +266,7 @@ struct LaneRow: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(row.title).font(.fuelText(13, weight: .semibold)).foregroundStyle(FuelTheme.text)
                         .lineLimit(1)
-                    Text(row.detail).font(.fuelText(11)).foregroundStyle(FuelTheme.text3).lineLimit(1)
+                    Text(conciseDetail(row.detail)).font(.fuelText(11)).foregroundStyle(FuelTheme.text3).lineLimit(1)
                 }
                 Spacer(minLength: 6)
                 Text(row.value).font(.fuelMono(12.5)).foregroundStyle(FuelTheme.text)
@@ -417,7 +434,7 @@ struct DashboardView: View {
             )
         }
         .padding(16)
-        .frame(width: 400)
+        .frame(width: 420)
         .background(FuelTheme.surface)
     }
 
