@@ -260,8 +260,29 @@ struct DashboardView: View {
     @State private var laneFilter: LaneFilter = .usable
     @State private var detailRowIDs: Set<String> = []
     @State private var customOrder: [String] = AppPreferences.laneOrder()
+    /// Persisted single-provider focus ("" = all providers).
+    @AppStorage("popoverProviderFilter") private var providerFilterRaw = ""
 
     private var model: DashboardViewModel { controller.model }
+
+    /// Providers that currently have lanes, in first-seen order — drives the
+    /// in-popover provider switcher.
+    private var availableProviders: [Provider] {
+        var seen = Set<Provider>()
+        var result: [Provider] = []
+        for row in orderedRows where !seen.contains(row.provider) {
+            seen.insert(row.provider)
+            result.append(row.provider)
+        }
+        return result
+    }
+
+    /// The active focus, ignored if that provider no longer has lanes.
+    private var activeProviderFilter: Provider? {
+        guard let provider = Provider(rawValue: providerFilterRaw),
+              availableProviders.contains(provider) else { return nil }
+        return provider
+    }
 
     /// All rows arranged by the user's saved drag order; rows not yet in the
     /// saved order keep their model position and are appended.
@@ -274,13 +295,19 @@ struct DashboardView: View {
     }
 
     private var visibleRows: [DashboardRow] {
+        let scoped: [DashboardRow]
         switch laneFilter {
         case .usable:
             let usable = orderedRows.filter(\.showsInUsableFilter)
-            return usable.isEmpty ? orderedRows : usable
+            scoped = usable.isEmpty ? orderedRows : usable
         case .all:
-            return orderedRows
+            scoped = orderedRows
         }
+        guard let provider = activeProviderFilter else { return scoped }
+        let withinScope = scoped.filter { $0.provider == provider }
+        // A picked provider always shows its lanes, even if the usable filter
+        // would otherwise hide them all.
+        return withinScope.isEmpty ? orderedRows.filter { $0.provider == provider } : withinScope
     }
 
     var body: some View {
@@ -331,10 +358,52 @@ struct DashboardView: View {
                 Text("All \(orderedRows.count)").tag(LaneFilter.all)
             }.pickerStyle(.segmented).labelsHidden().fixedSize()
             Spacer()
-            Label("Drag to reorder", systemImage: "line.3.horizontal")
-                .labelStyle(.titleAndIcon)
-                .font(.fuelText(10.5)).foregroundStyle(FuelTheme.text3)
+            if availableProviders.count > 1 {
+                providerFilterMenu
+            } else {
+                Label("Drag to reorder", systemImage: "line.3.horizontal")
+                    .labelStyle(.titleAndIcon)
+                    .font(.fuelText(10.5)).foregroundStyle(FuelTheme.text3)
+            }
         }
+    }
+
+    /// Compact menu to focus a single provider (or all). Scales past a chip row
+    /// without crowding the 420pt popover.
+    private var providerFilterMenu: some View {
+        Menu {
+            Button {
+                providerFilterRaw = ""
+            } label: {
+                if activeProviderFilter == nil {
+                    Label("All providers", systemImage: "checkmark")
+                } else {
+                    Text("All providers")
+                }
+            }
+            Divider()
+            ForEach(availableProviders, id: \.self) { provider in
+                Button {
+                    providerFilterRaw = provider.rawValue
+                } label: {
+                    if activeProviderFilter == provider {
+                        Label(provider.displayName, systemImage: "checkmark")
+                    } else {
+                        Text(provider.displayName)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "line.3.horizontal.decrease.circle").font(.system(size: 11))
+                Text(activeProviderFilter?.displayName ?? "All providers")
+                    .font(.fuelText(11, weight: .medium))
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+            }
+            .foregroundStyle(activeProviderFilter == nil ? FuelTheme.text3 : FuelTheme.accent)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 
     @ViewBuilder private var laneList: some View {

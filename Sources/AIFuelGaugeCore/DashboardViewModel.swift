@@ -616,6 +616,7 @@ public struct DashboardStatusExport: Codable, Equatable, Sendable {
 
 public struct DashboardRow: Equatable, Identifiable, Sendable {
     public let id: String
+    public let provider: Provider
     public let title: String
     public let value: String
     public let detail: String
@@ -633,6 +634,7 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
 
     public init(
         id: String,
+        provider: Provider = .claudeCode,
         title: String,
         value: String,
         detail: String,
@@ -649,6 +651,7 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
         showsInUsableFilter: Bool? = nil
     ) {
         self.id = id
+        self.provider = provider
         self.title = title
         self.value = value
         self.detail = detail
@@ -788,6 +791,7 @@ public struct DashboardViewModel: Equatable, Sendable {
                 let paceCaption = Self.paceCaption(for: snapshot, historySamples: historySamples, now: now)
                 return DashboardRow(
                     id: snapshot.id,
+                    provider: snapshot.provider,
                     title: title,
                     value: value,
                     detail: detail,
@@ -1198,6 +1202,10 @@ public struct DashboardViewModel: Equatable, Sendable {
             return "https://openrouter.ai/settings/credits"
         case .openAI:
             return "https://platform.openai.com/usage"
+        case .gemini:
+            return "https://aistudio.google.com/usage"
+        case .copilot:
+            return "https://github.com/settings/copilot"
         default:
             return nil
         }
