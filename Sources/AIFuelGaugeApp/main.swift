@@ -1365,10 +1365,10 @@ enum LaunchAgentManager {
 
     static func statusMessage() -> String {
         guard FileManager.default.fileExists(atPath: plistURL.path) else {
-            return "Start at login is off. Enable it to recreate the LaunchAgent."
+            return "Start at login is off. Enable it to recreate the LaunchAgent for future logins."
         }
         let executablePath = executableURL?.path ?? "unknown executable"
-        return "Start at login is on. LaunchAgent: \(plistURL.path). Current executable: \(executablePath)."
+        return "Start at login is on for future logins. LaunchAgent: \(plistURL.path). Current executable: \(executablePath)."
     }
 
     @discardableResult

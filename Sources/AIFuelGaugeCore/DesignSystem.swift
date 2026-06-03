@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// Converts OKLCH color coordinates to gamma-encoded sRGB in [0,1].
-/// Preserves the exact oklch values from handoff/source/assets/app.css.
+/// Converts OKLCH design-token values to SwiftUI colors.
 public enum OKLCH {
     public static func srgb(l: Double, c: Double, h: Double) -> (r: Double, g: Double, b: Double) {
         let hr = h * .pi / 180.0
@@ -61,7 +61,7 @@ private func hex(_ value: UInt32, _ alpha: Double = 1.0) -> Color {
           opacity: alpha)
 }
 
-/// Central design tokens for the redesign. Mirrors handoff/source/assets/app.css.
+/// Central design tokens for the app's light and dark surfaces.
 public enum FuelTheme {
     // MARK: Brand accent (oklch)
     public static let accent     = dynamicColor(light: OKLCH.color(0.55, 0.16, 256), dark: OKLCH.color(0.68, 0.15, 256))

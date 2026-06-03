@@ -1,9 +1,7 @@
 
-
-<img width="503" height="743" alt="Screenshot 2026-05-28 at 10 19 41 AM" src="https://github.com/user-attachments/assets/4e1af93a-3199-4858-a952-7ec63cc74b1c" />
-
 # AI Fuel Gauge
 
+[![CI](https://github.com/ozansozuozgit/aifuelgauge/actions/workflows/ci.yml/badge.svg)](https://github.com/ozansozuozgit/aifuelgauge/actions/workflows/ci.yml)
 [![Release](https://github.com/ozansozuozgit/aifuelgauge/actions/workflows/release.yml/badge.svg)](https://github.com/ozansozuozgit/aifuelgauge/actions/workflows/release.yml)
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black)](#install)
 [![Swift 6](https://img.shields.io/badge/Swift-6-orange)](Package.swift)
@@ -18,10 +16,6 @@ It watches Codex, Cursor, Claude Code, OpenRouter, OpenAI, and local agent usage
 signals, then turns them into a compact menu-bar status and a fast popover built
 for scanning.
 
-<!--
-Add the screenshot at docs/assets/ai-fuel-gauge-popover.png, then uncomment this
-block before publishing a visual README.
-
 <p align="center">
   <img
     src="docs/assets/ai-fuel-gauge-popover.png"
@@ -29,7 +23,6 @@ block before publishing a visual README.
     width="780"
   >
 </p>
--->
 
 ## Why
 
@@ -112,6 +105,9 @@ brew install --cask https://raw.githubusercontent.com/ozansozuozgit/aifuelgauge/
 
 Open **AI Fuel Gauge** from Applications after installing.
 
+Homebrew installs the app bundle. Start-at-login can be enabled from
+**Settings -> General** after first launch.
+
 ### From Source
 
 ```bash
@@ -131,6 +127,9 @@ It also installs and starts this LaunchAgent:
 ```text
 ~/Library/LaunchAgents/com.ozansozuoz.aifuelgauge.plist
 ```
+
+The in-app start-at-login toggle creates or removes the same LaunchAgent for
+future logins without restarting the app that is currently running.
 
 Uninstall:
 
@@ -233,6 +232,9 @@ are easier while the usage meter remains the main product surface.
 
 ## Development
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full local workflow and privacy
+expectations for changes.
+
 Run tests:
 
 ```bash
@@ -278,11 +280,10 @@ The release workflow runs tests on macOS, builds `AI Fuel Gauge.app`, uploads
 versioned and stable `AI-Fuel-Gauge-latest.zip` artifacts, and attaches SHA-256
 checksums.
 
-If signing and notarization secrets are configured, the workflow signs with
-hardened runtime, submits the app to Apple notarization, staples the ticket, and
-publishes the notarized zip. Without those secrets, local and CI packaging still
-work with ad-hoc signing, though macOS may require first-launch approval in
-Privacy & Security.
+Tagged public releases require signing and notarization secrets. The workflow
+signs with hardened runtime, submits the app to Apple notarization, staples the
+ticket, and publishes the notarized zip. Manual workflow runs can still produce
+ad-hoc artifacts for testing, but public tags should ship notarized builds.
 
 ## Roadmap
 

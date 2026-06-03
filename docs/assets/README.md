@@ -1,12 +1,9 @@
-# README Assets
+# Public Assets
 
-Place public README images here.
+Public screenshots and other README assets live here.
 
-Recommended screenshot path:
+Current screenshot path:
 
 ```text
 docs/assets/ai-fuel-gauge-popover.png
 ```
-
-After adding the screenshot, uncomment the image block near the top of
-`README.md`.

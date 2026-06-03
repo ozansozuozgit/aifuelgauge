@@ -195,7 +195,7 @@ struct GeneralPane: View {
     private func setLaunchAgent(enabled: Bool) {
         guard enabled != launchAgentMessage.hasPrefix("Start at login is on") else { return }
         isChangingLaunchAgent = true
-        launchAgentMessage = enabled ? "Enabling start at login..." : "Disabling start at login..."
+        launchAgentMessage = enabled ? "Enabling for future logins..." : "Disabling future login launch..."
         Task {
             let result: String
             var failed = false
