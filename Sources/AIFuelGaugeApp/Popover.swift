@@ -188,8 +188,10 @@ struct HeroFeaturedCard: View {
                     Spacer()
                     FocusPill(rows: allRows, pinnedID: $pinnedID)
                 }
-                Text(row.title).font(.fuelText(17, weight: .bold)).foregroundStyle(FuelTheme.text)
+                Text(row.title).font(.fuelText(16, weight: .bold)).foregroundStyle(FuelTheme.text)
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 Text(row.detail).font(.fuelText(12)).foregroundStyle(FuelTheme.text2)
+                    .lineLimit(2)
                 if !insight.isEmpty {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "bolt.fill").font(.system(size: 10)).foregroundStyle(FuelTheme.safe)
@@ -244,10 +246,14 @@ struct LaneRow: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Circle().fill(FuelTheme.color(for: row.state)).frame(width: 8, height: 8)
-                Text(row.title).font(.fuelText(13, weight: .semibold)).foregroundStyle(FuelTheme.text)
-                Text(row.detail).font(.fuelText(11.5)).foregroundStyle(FuelTheme.text3).lineLimit(1)
-                Spacer()
-                Text(row.value).font(.fuelMono(13)).foregroundStyle(FuelTheme.text)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(row.title).font(.fuelText(13, weight: .semibold)).foregroundStyle(FuelTheme.text)
+                        .lineLimit(1)
+                    Text(row.detail).font(.fuelText(11)).foregroundStyle(FuelTheme.text3).lineLimit(1)
+                }
+                Spacer(minLength: 6)
+                Text(row.value).font(.fuelMono(12.5)).foregroundStyle(FuelTheme.text)
+                    .lineLimit(1).fixedSize()
                 laneButton("pin.fill", active: isPinned, action: onPin)
                 laneButton("doc.on.doc", action: onCopy)
                 if row.dashboardURL != nil { laneButton("arrow.up.right.square", action: onOpen) }
@@ -411,7 +417,7 @@ struct DashboardView: View {
             )
         }
         .padding(16)
-        .frame(width: 360)
+        .frame(width: 400)
         .background(FuelTheme.surface)
     }
 
