@@ -19,7 +19,8 @@ let package = Package(
         ),
         .testTarget(
             name: "AIFuelGaugeCoreTests",
-            dependencies: ["AIFuelGaugeCore"]
+            dependencies: ["AIFuelGaugeCore"],
+            resources: [.copy("Fixtures")]
         )
     ]
 )
