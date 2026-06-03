@@ -744,6 +744,17 @@ final class DashboardController: ObservableObject {
                 warnings.append("Local refresh failed")
             }
 
+            if monitoredProviders.contains(.claudeCode) {
+                do {
+                    let oauthLanes = try await ClaudeOAuthConnector().fetchUsageFromLocalCredentials()
+                    if !oauthLanes.isEmpty {
+                        snapshots = ClaudeSourcePlanner.plan(local: snapshots, oauth: oauthLanes)
+                    }
+                } catch {
+                    warnings.append("Claude usage unavailable")
+                }
+            }
+
             if monitoredProviders.contains(.codex) {
                 do {
                     let codexSnapshots = try await CodexUsageConnector().fetchUsage()
