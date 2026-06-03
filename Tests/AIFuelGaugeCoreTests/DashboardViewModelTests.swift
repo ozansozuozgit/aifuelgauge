@@ -394,6 +394,11 @@ final class DashboardViewModelTests: XCTestCase {
     }
 
     func testCodexAccountUsageReadsAsRemainingCapacity() {
+        // Reset labels render in the user's local time zone (correct for users);
+        // pin UTC here so the asserted weekday/time is deterministic on any runner.
+        let savedZone = NSTimeZone.default
+        NSTimeZone.default = TimeZone(identifier: "UTC")!
+        defer { NSTimeZone.default = savedZone }
         let now = Date(timeIntervalSince1970: 100)
         let model = DashboardViewModel(summary: UsageSummary(snapshots: [
             UsageSnapshot(
@@ -422,7 +427,7 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(model.footerNote, "Account live")
         XCTAssertEqual(model.rows.map(\.title), ["Codex · Weekly"])
         XCTAssertEqual(model.rows.map(\.value), ["54% left"])
-        XCTAssertEqual(model.rows[0].detail, "resets Sat 7 PM (3d) · Exact · account · now")
+        XCTAssertEqual(model.rows[0].detail, "resets Sun 12 AM (3d) · Exact · account · now")
         XCTAssertEqual(model.rows[0].explanation, "Exact from Codex account usage. The 5h window is the active session limit; Weekly is the longer reserve.")
     }
 
