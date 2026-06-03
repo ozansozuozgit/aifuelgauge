@@ -91,6 +91,12 @@ public enum ClaudeCredentialsReader {
         loadFromDisk(home: home) ?? loadFromKeychain()
     }
 
+    /// Whether any Claude OAuth credentials exist (so OAuth is the source of
+    /// truth and the statusline fallback should be ignored).
+    public static func hasCredentials(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> Bool {
+        load(home: home) != nil
+    }
+
     /// Atomically write refreshed credentials back to the credential file,
     /// preserving 0600 permissions (temp file in the same dir + replace).
     public static func writeBack(_ credentials: ClaudeCredentials,

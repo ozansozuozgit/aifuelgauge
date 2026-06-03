@@ -665,7 +665,7 @@ public struct DashboardRow: Equatable, Identifiable, Sendable {
         self.receiptText = receiptText
         self.confidence = confidence
         self.state = state
-        self.showsInUsableFilter = showsInUsableFilter ?? (state != .exhausted && state != .unknown)
+        self.showsInUsableFilter = showsInUsableFilter ?? (state != .unknown)
     }
 }
 
@@ -1682,7 +1682,11 @@ public struct DashboardViewModel: Equatable, Sendable {
     }
 
     private static func showsInUsableFilter(_ snapshot: UsageSnapshot) -> Bool {
-        (snapshot.state != .exhausted && snapshot.state != .unknown)
+        // Show everything with a real number — including exhausted (0% left)
+        // lanes, so a used-up limit stays visible rather than silently hidden.
+        // Only no-data (.unknown) noise is filtered, plus the explicit
+        // detected-Claude case which is intentionally surfaced.
+        snapshot.state != .unknown
             || isConstrainedCodexReserve(snapshot)
             || isDetectedClaudeCodeUsage(snapshot)
     }

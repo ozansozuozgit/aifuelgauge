@@ -28,6 +28,15 @@ final class ClaudeSourcePlannerTests: XCTestCase {
         XCTAssertEqual(merged.count, 2)
     }
 
+    func testOAuthAvailableDropsStatuslineEvenWhenCallFailed() {
+        // Cold-start / transient: creds exist (oauthAvailable) but this cycle's
+        // OAuth returned nothing. We must NOT surface the unreliable statusline.
+        let local = [percentLane("5h", 0, source: .localLogs), tokenLane()]   // statusline says 0% used
+        let merged = ClaudeSourcePlanner.plan(local: local, oauth: [], oauthAvailable: true)
+        XCTAssertFalse(merged.contains { $0.label == "5h" })   // statusline 5h dropped
+        XCTAssertTrue(merged.contains { $0.label == "Claude Code" })  // token estimate kept
+    }
+
     func testLeavesOtherProvidersUntouched() {
         let codex = UsageSnapshot(provider: .codex, source: .localLogs, label: "5h",
                                   used: .percent(50), limit: .percent(100), reset: nil,

@@ -753,13 +753,16 @@ final class DashboardController: ObservableObject {
             }
 
             if monitoredProviders.contains(.claudeCode) {
+                // When Claude OAuth creds exist, OAuth is authoritative and the
+                // per-window statusline is dropped entirely — even on a failed
+                // call — so usage never flips to the unreliable statusline value.
+                let oauthAvailable = ClaudeCredentialsReader.hasCredentials()
                 do {
                     let oauthLanes = try await ClaudeOAuthConnector().fetchUsageFromLocalCredentials()
-                    if !oauthLanes.isEmpty {
-                        snapshots = ClaudeSourcePlanner.plan(local: snapshots, oauth: oauthLanes)
-                    }
+                    snapshots = ClaudeSourcePlanner.plan(local: snapshots, oauth: oauthLanes, oauthAvailable: oauthAvailable)
                 } catch {
                     warnings.append("Claude usage unavailable")
+                    snapshots = ClaudeSourcePlanner.plan(local: snapshots, oauth: [], oauthAvailable: oauthAvailable)
                 }
             }
 
