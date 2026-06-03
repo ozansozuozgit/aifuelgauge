@@ -1,7 +1,10 @@
 # Multi-Provider Detection Upgrade — Design Spec
 
 **Date:** 2026-06-03
-**Status:** Approved (design); pending implementation plan
+**Status:** IMPLEMENTED 2026-06-03. Phase 1 (Claude) live-verified; Phase 4
+(Codex) live-verified; Phase 5 (Cursor) no-op under local-creds-only; Phases 2
+(Gemini) + 3 (Copilot) built with unit tests, shipped OFF by default pending
+live verification (tools not installed on dev machine). 151 tests pass.
 **Author:** Ozan + Claude
 
 ## Goal
