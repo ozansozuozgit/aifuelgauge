@@ -793,7 +793,9 @@ public struct DashboardViewModel: Equatable, Sendable {
                     detail: detail,
                     dashboardURL: dashboardURL,
                     explanation: Self.explanation(for: snapshot),
-                    meterPercent: snapshot.usagePercent.map { min(max($0, 0), 1) },
+                    // Meter fill represents fuel remaining (1 - used), so a full green
+                    // bar means a full tank and a near-empty red bar means almost out.
+                    meterPercent: snapshot.usagePercent.map { min(max(1 - $0, 0), 1) },
                     meterLabel: Self.remainingLabel(for: snapshot),
                     trendPercents: Self.trendPercents(for: snapshot, history: history),
                     trendCaption: trendCaption,
@@ -1554,10 +1556,9 @@ public struct DashboardViewModel: Equatable, Sendable {
         }
 
         if let usagePercent = snapshot.usagePercent {
-            if prefersRemainingDisplay(snapshot) {
-                return "\(displayPercent(for: snapshot))% left"
-            }
-            return "\(Int((usagePercent * 100).rounded()))% used"
+            // A fuel gauge reads as what remains: every comparable lane shows "% left"
+            // so the headline number never flips frame between providers.
+            return "\(Int((max(0, 1 - usagePercent) * 100).rounded()))% left"
         }
 
         if snapshot.confidence == .unknown {

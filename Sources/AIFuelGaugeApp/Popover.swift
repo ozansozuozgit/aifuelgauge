@@ -100,19 +100,24 @@ struct StatePill: View {
     }
 }
 
-/// Trims noisy trailing segments (masked email, "account", "acct …", "now")
-/// from a lane's detail line so it stays concise in the popover.
-func conciseDetail(_ detail: String) -> String {
-    detail
+/// Reduces a lane's detail line to its most useful segment for the resting row:
+/// the reset phrase (and any low-reserve note). Trust, source, account, and
+/// freshness move to the trust chip and the expanded receipt, so the subtitle
+/// stays a single calm line instead of a noisy chain of metadata.
+func laneSubtitle(_ detail: String) -> String {
+    let drop: Set<String> = ["exact", "estimated", "estimate", "unknown", "no limit",
+                             "local", "api", "account"]
+    return detail
         .split(separator: "·")
         .map { $0.trimmingCharacters(in: .whitespaces) }
         .filter { segment in
             let lower = segment.lowercased()
             return !segment.isEmpty
                 && !segment.contains("@")
-                && lower != "now"
-                && lower != "account"
+                && !drop.contains(lower)
                 && !lower.hasPrefix("acct")
+                && !lower.hasSuffix("ago")
+                && lower != "now"
         }
         .joined(separator: " · ")
 }
@@ -124,27 +129,41 @@ struct LaneRow: View {
     let onOpen: () -> Void
     let onToggleDetails: () -> Void
 
+    @State private var hovering = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .top, spacing: 9) {
                 Circle().fill(FuelTheme.color(for: row.state)).frame(width: 8, height: 8)
-                VStack(alignment: .leading, spacing: 1) {
+                    .padding(.top, 4)
+                VStack(alignment: .leading, spacing: 2) {
                     Text(row.title).font(.fuelText(13, weight: .semibold)).foregroundStyle(FuelTheme.text)
-                        .lineLimit(1)
-                    Text(conciseDetail(row.detail)).font(.fuelText(11)).foregroundStyle(FuelTheme.text3).lineLimit(1)
+                        .lineLimit(1).truncationMode(.middle)
+                    HStack(spacing: 6) {
+                        Text(laneSubtitle(row.detail)).font(.fuelText(11)).foregroundStyle(FuelTheme.text3)
+                            .lineLimit(1)
+                        // Only surface trust when it's the exception — exact lanes stay quiet.
+                        if row.confidence != .exact { TrustChip(confidence: row.confidence) }
+                    }
                 }
                 Spacer(minLength: 6)
-                Text(row.value).font(.fuelMono(12.5)).foregroundStyle(FuelTheme.text)
+                // Tier 1: the answer — biggest, boldest, state-colored.
+                Text(row.value).font(.fuelMono(14.5, weight: .bold))
+                    .foregroundStyle(FuelTheme.color(for: row.state))
                     .lineLimit(1).fixedSize()
-                laneButton("doc.on.doc", action: onCopy)
-                if row.dashboardURL != nil { laneButton("arrow.up.right.square", action: onOpen) }
-                laneButton(showDetails ? "chevron.up" : "chevron.down", action: onToggleDetails)
+                // Row actions reveal on hover so the resting row is pure data.
+                if hovering {
+                    HStack(spacing: 8) {
+                        laneButton("doc.on.doc", action: onCopy)
+                        if row.dashboardURL != nil { laneButton("arrow.up.right.square", action: onOpen) }
+                        laneButton(showDetails ? "chevron.up" : "chevron.down", action: onToggleDetails)
+                    }
+                    .transition(.opacity)
+                } else if showDetails {
+                    laneButton("chevron.up", action: onToggleDetails)
+                }
             }
             Meter(percent: row.meterPercent, state: row.state)
-            if let label = row.meterLabel {
-                Text(label).font(.fuelText(11)).foregroundStyle(FuelTheme.color(for: row.state))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
             if showDetails {
                 if !row.trendPercents.isEmpty {
                     HStack(spacing: 8) {
@@ -166,7 +185,13 @@ struct LaneRow: View {
                 }
             }
         }
-        .padding(.vertical, 10).padding(.horizontal, 12)
+        .padding(.vertical, 9).padding(.horizontal, 10)
+        .background(hovering ? FuelTheme.surfaceHover : .clear,
+                    in: RoundedRectangle(cornerRadius: FuelTheme.radiusSM, style: .continuous))
+        .contentShape(Rectangle())
+        .onHover { isHovering in
+            withAnimation(.easeOut(duration: 0.12)) { hovering = isHovering }
+        }
     }
 
     private func laneButton(_ symbol: String, active: Bool = false, action: @escaping () -> Void) -> some View {
@@ -175,32 +200,6 @@ struct LaneRow: View {
                 .foregroundStyle(active ? FuelTheme.accent : FuelTheme.text3)
         }
         .buttonStyle(.plain)
-    }
-}
-
-struct ResetCard: View {
-    let eyebrow: String
-    let value: String
-    let caption: String
-    let state: UsageState
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(eyebrow).font(.fuelEyebrow).foregroundStyle(FuelTheme.text3)
-            Text(value).font(.fuelMono(15)).foregroundStyle(FuelTheme.color(for: state))
-            Text(caption).font(.fuelText(11)).foregroundStyle(FuelTheme.text2).lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .fuelCard(radius: FuelTheme.radiusMD, padding: 10)
-    }
-}
-
-struct ResetContextStrip: View {
-    struct Item: Identifiable { let id = UUID(); let eyebrow: String; let value: String; let caption: String; let state: UsageState }
-    let items: [Item]
-    var body: some View {
-        HStack(spacing: 8) {
-            ForEach(items) { ResetCard(eyebrow: $0.eyebrow, value: $0.value, caption: $0.caption, state: $0.state) }
-        }
     }
 }
 
@@ -224,9 +223,13 @@ struct ActionBar: View {
                 Button(action: onRefresh) {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }.buttonStyle(.borderedProminent).tint(FuelTheme.accent)
-                Button(action: onSettings) { Label("Settings", systemImage: "gearshape") }.buttonStyle(.bordered)
-                Button(action: onHistory) { Label("History", systemImage: "chart.xyaxis.line") }.buttonStyle(.bordered)
                 Spacer()
+                Button(action: onSettings) {
+                    Image(systemName: "gearshape").font(.system(size: 13))
+                }.buttonStyle(.bordered).help("Settings")
+                Button(action: onHistory) {
+                    Image(systemName: "chart.xyaxis.line").font(.system(size: 13))
+                }.buttonStyle(.bordered).help("History")
                 Menu {
                     Button("Copy snapshot", action: onCopySnapshot)
                     Button("Copy diagnostics", action: onCopyDiagnostics)
@@ -285,7 +288,6 @@ struct DashboardView: View {
             header
             laneToolbar
             laneList
-            ResetContextStrip(items: resetItems)
             WorkbenchSection(
                 snapshot: controller.workbench,
                 openQuickRoute: actions.openQuickRoute,
@@ -314,10 +316,10 @@ struct DashboardView: View {
             BrandMark(size: 22)
             VStack(alignment: .leading, spacing: 1) {
                 Text("AI Fuel Gauge").font(.fuelText(14, weight: .bold)).foregroundStyle(FuelTheme.text)
-                Text(model.statusLabel).font(.fuelText(11.5)).foregroundStyle(FuelTheme.text3)
+                Text(headerSubtitle).font(.fuelText(11.5)).foregroundStyle(FuelTheme.text3).lineLimit(1)
             }
             Spacer()
-            StatePill(state: model.state, label: stateLabel)
+            StatePill(state: headerState, label: stateLabel)
         }
     }
 
@@ -325,10 +327,9 @@ struct DashboardView: View {
         HStack(spacing: 8) {
             Text("LANES").font(.fuelEyebrow).foregroundStyle(FuelTheme.text3)
             Picker("", selection: $laneFilter) {
-                Text("Usable").tag(LaneFilter.usable)
-                Text("All").tag(LaneFilter.all)
+                Text("Usable \(usableCount)").tag(LaneFilter.usable)
+                Text("All \(orderedRows.count)").tag(LaneFilter.all)
             }.pickerStyle(.segmented).labelsHidden().fixedSize()
-            Text("\(visibleRows.count)").font(.fuelMono(11)).foregroundStyle(FuelTheme.text3)
             Spacer()
             Label("Drag to reorder", systemImage: "line.3.horizontal")
                 .labelStyle(.titleAndIcon)
@@ -338,10 +339,7 @@ struct DashboardView: View {
 
     @ViewBuilder private var laneList: some View {
         if model.rows.isEmpty {
-            Text("Estimating usage…")
-                .font(.fuelText(12)).foregroundStyle(FuelTheme.text3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fuelCard(radius: FuelTheme.radiusMD, padding: 16)
+            emptyState
         } else {
             List {
                 ForEach(visibleRows) { row in
@@ -352,7 +350,7 @@ struct DashboardView: View {
                         onOpen: { actions.openRow(row) },
                         onToggleDetails: { toggleDetails(row.id) }
                     )
-                    .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                     .listRowBackground(Color.clear)
                     .listRowSeparatorTint(FuelTheme.divider)
                 }
@@ -360,20 +358,36 @@ struct DashboardView: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
+            .scrollIndicators(.hidden)
             .environment(\.defaultMinListRowHeight, 0)
             .frame(height: laneListHeight)
-            .background(FuelTheme.surfaceSunken, in: RoundedRectangle(cornerRadius: FuelTheme.radiusMD, style: .continuous))
         }
+    }
+
+    /// Friendly zero/loading state instead of a bare grey well.
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            BrandMark(size: 30)
+            Text("Reading your usage…").font(.fuelText(13, weight: .semibold)).foregroundStyle(FuelTheme.text)
+            Text("If nothing appears, connect a source in Settings to start tracking your limits.")
+                .font(.fuelText(11)).foregroundStyle(FuelTheme.text3)
+                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            Button(action: actions.settings) {
+                Label("Open Settings", systemImage: "gearshape")
+            }.buttonStyle(.bordered).controlSize(.small).padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 28).padding(.horizontal, 16)
     }
 
     /// Adapts the list height to row count (so few lanes don't leave a big well)
     /// while capping so the popover stays compact; the List scrolls past the cap.
     private var laneListHeight: CGFloat {
-        let collapsed: CGFloat = 86
-        let expandedExtra: CGFloat = 96
+        let collapsed: CGFloat = 66
+        let expandedExtra: CGFloat = 92
         let expandedCount = visibleRows.filter { detailRowIDs.contains($0.id) }.count
         let raw = CGFloat(visibleRows.count) * collapsed + CGFloat(expandedCount) * expandedExtra
-        return min(max(raw, collapsed), 320)
+        return min(max(raw, collapsed), 340)
     }
 
     /// Reorders the visible lanes and persists the new global order.
@@ -391,19 +405,40 @@ struct DashboardView: View {
         if detailRowIDs.contains(id) { detailRowIDs.remove(id) } else { detailRowIDs.insert(id) }
     }
 
+    private var usableCount: Int {
+        orderedRows.filter(\.showsInUsableFilter).count
+    }
+
+    /// The lane the user actually cares about right now: the most constrained
+    /// one currently visible. Drives the header pill and subtitle so they always
+    /// agree with what's on screen (no "Almost out" while every lane reads green).
+    private var tightestRow: DashboardRow? {
+        visibleRows.max { lhs, rhs in
+            if lhs.state != rhs.state { return lhs.state < rhs.state }
+            return (lhs.meterPercent ?? 1) > (rhs.meterPercent ?? 1)
+        }
+    }
+
+    private var headerState: UsageState {
+        tightestRow?.state ?? model.state
+    }
+
+    private var headerSubtitle: String {
+        guard let row = tightestRow else { return model.statusLabel }
+        if headerState >= .caution {
+            // Name the constraint and how much is left, e.g. "Codex · Weekly · 8% left".
+            return "\(row.title) · \(row.value)"
+        }
+        return "All lanes healthy"
+    }
+
     private var stateLabel: String {
-        switch model.state {
+        switch headerState {
         case .safe: return "Healthy"
         case .caution: return "Getting tight"
         case .critical: return "Almost out"
         case .exhausted: return "Spent"
         case .unknown: return "Estimating"
-        }
-    }
-
-    private var resetItems: [ResetContextStrip.Item] {
-        model.resetTimeline.prefix(3).map { item in
-            ResetContextStrip.Item(eyebrow: "RESET", value: item.value, caption: item.title, state: item.state)
         }
     }
 }
