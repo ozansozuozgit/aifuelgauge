@@ -13,6 +13,19 @@ private final class StubTransport: HTTPTransport {
     }
 }
 
+/// Returns a sequence of (data, status) pairs across successive calls.
+private final class SequencedTransport: HTTPTransport, @unchecked Sendable {
+    private var responses: [(Data, Int)]
+    private(set) var callCount = 0
+    init(_ responses: [(Data, Int)]) { self.responses = responses }
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        callCount += 1
+        let (data, status) = responses.isEmpty ? (Data(), 500) : (responses.count > 1 ? responses.removeFirst() : responses[0])
+        let resp = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+        return (data, resp)
+    }
+}
+
 final class ClaudeOAuthConnectorTests: XCTestCase {
 
     // MARK: Credentials reader
@@ -140,6 +153,44 @@ final class ClaudeOAuthConnectorTests: XCTestCase {
         XCTAssertEqual(transport.lastRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer tok-xyz")
         XCTAssertEqual(transport.lastRequest?.value(forHTTPHeaderField: "anthropic-beta"), "oauth-2025-04-20")
         XCTAssertEqual(rows.first?.used, .percent(12))
+    }
+
+    // MARK: Caching / rate-limit resilience
+
+    private static let usageBody = Data(#"{"five_hour":{"utilization":4,"resets_at":"2026-06-03T18:00:00Z"}}"#.utf8)
+
+    func testCachePreservesLastGoodOnRateLimit() async throws {
+        // call 1 → 200 (4% used), call 2 → 429. Should serve the preserved value, not throw.
+        let transport = SequencedTransport([(Self.usageBody, 200), (Data(), 429)])
+        let cache = ClaudeUsageCache()
+        let creds = ClaudeCredentials(accessToken: "t", refreshToken: nil, expiresAtMillis: nil)
+        let connector = ClaudeOAuthConnector(transport: transport, cache: cache,
+                                             minRefetchInterval: 0, stalePreserveTTL: 600)
+        let first = try await connector.fetchUsageCached(credentials: creds)
+        XCTAssertEqual(first.first?.used, .percent(4))
+        let second = try await connector.fetchUsageCached(credentials: creds)
+        XCTAssertEqual(second.first?.used, .percent(4))   // preserved, not 429-empty
+        XCTAssertEqual(transport.callCount, 2)            // it did attempt the 2nd call
+    }
+
+    func testDebounceSkipsCallWithinInterval() async throws {
+        let transport = SequencedTransport([(Self.usageBody, 200)])
+        let cache = ClaudeUsageCache()
+        let creds = ClaudeCredentials(accessToken: "t", refreshToken: nil, expiresAtMillis: nil)
+        let connector = ClaudeOAuthConnector(transport: transport, cache: cache,
+                                             minRefetchInterval: 600, stalePreserveTTL: 600)
+        _ = try await connector.fetchUsageCached(credentials: creds)
+        _ = try await connector.fetchUsageCached(credentials: creds)
+        XCTAssertEqual(transport.callCount, 1)            // 2nd call served from cache, no network
+    }
+
+    func testFailureWithoutCacheStillThrows() async {
+        let transport = SequencedTransport([(Data(), 429)])
+        let connector = ClaudeOAuthConnector(transport: transport, cache: ClaudeUsageCache(),
+                                             minRefetchInterval: 0, stalePreserveTTL: 600)
+        let creds = ClaudeCredentials(accessToken: "t", refreshToken: nil, expiresAtMillis: nil)
+        do { _ = try await connector.fetchUsageCached(credentials: creds); XCTFail("expected throw") }
+        catch { XCTAssertEqual(error as? ConnectorError, .badStatus(429)) }
     }
 
     func testConnectorThrowsOnBadStatus() async {

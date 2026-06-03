@@ -236,6 +236,30 @@ public enum ClaudeOAuthUsageParser {
     static func parseDate(_ string: String) -> Date? { ISO8601Tolerant.date(string) }
 }
 
+// MARK: - Cache
+
+/// Process-wide cache of the last successful Claude usage lanes. Anthropic's
+/// OAuth usage endpoint is aggressively rate-limited (HTTP 429 after rapid
+/// calls), so we debounce calls and preserve the last good result on failure
+/// rather than letting callers fall back to the unreliable per-window statusline.
+public actor ClaudeUsageCache {
+    public static let shared = ClaudeUsageCache()
+    private var lanes: [UsageSnapshot] = []
+    private var storedAt: Date?
+
+    public init() {}
+
+    func fresh(within interval: TimeInterval, now: Date) -> [UsageSnapshot]? {
+        guard let storedAt, !lanes.isEmpty, now.timeIntervalSince(storedAt) < interval else { return nil }
+        return lanes
+    }
+
+    func store(_ lanes: [UsageSnapshot], at date: Date) {
+        self.lanes = lanes
+        self.storedAt = date
+    }
+}
+
 // MARK: - Connector
 
 public final class ClaudeOAuthConnector {
@@ -244,19 +268,30 @@ public final class ClaudeOAuthConnector {
     private let refresher: ClaudeTokenRefresher
     private let userAgent: String
     private let now: () -> Date
+    private let cache: ClaudeUsageCache
+    /// Don't re-hit the rate-limited endpoint more often than this.
+    private let minRefetchInterval: TimeInterval
+    /// Keep serving the last good value for up to this long when calls fail.
+    private let stalePreserveTTL: TimeInterval
 
     public init(
         transport: HTTPTransport = URLSession.shared,
         usageEndpoint: URL = URL(string: "https://api.anthropic.com/api/oauth/usage")!,
         refresher: ClaudeTokenRefresher = ClaudeTokenRefresher(),
         userAgent: String = ClaudeTokenRefresher.defaultUserAgent,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        cache: ClaudeUsageCache = .shared,
+        minRefetchInterval: TimeInterval = 120,
+        stalePreserveTTL: TimeInterval = 1800
     ) {
         self.transport = transport
         self.usageEndpoint = usageEndpoint
         self.refresher = refresher
         self.userAgent = userAgent
         self.now = now
+        self.cache = cache
+        self.minRefetchInterval = minRefetchInterval
+        self.stalePreserveTTL = stalePreserveTTL
     }
 
     /// Fetch usage with an already-valid access token.
@@ -275,25 +310,53 @@ public final class ClaudeOAuthConnector {
     }
 
     /// Load credentials from disk/Keychain; refresh + write back if expired;
-    /// then fetch usage. Returns [] if no credentials are present.
+    /// then fetch usage — debounced and cached. Returns [] if no credentials.
     public func fetchUsageFromLocalCredentials(
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) async throws -> [UsageSnapshot] {
+        let nowDate = now()
+        // Debounce: reuse a very recent result so frequent (e.g. activity-driven)
+        // refreshes don't hammer the rate-limited endpoint or churn the token.
+        if let recent = await cache.fresh(within: minRefetchInterval, now: nowDate) { return recent }
         guard let stored = ClaudeCredentialsReader.load(home: home) else { return [] }
-        var credentials = stored
-        if credentials.isExpired(now: now()) {
-            guard let refreshToken = credentials.refreshToken else { return [] }
-            let rotated = try await refresher.refresh(refreshToken: refreshToken)
-            credentials = ClaudeCredentials(
-                accessToken: rotated.accessToken,
-                refreshToken: rotated.refreshToken,
-                expiresAtMillis: rotated.expiresAtMillis,
-                subscriptionType: stored.subscriptionType
-            )
-            // Persist rotation so Claude Code and we stay in sync. Best-effort:
-            // a failed write must not block returning fresh usage.
-            try? ClaudeCredentialsReader.writeBack(credentials, home: home)
+        do {
+            var credentials = stored
+            if credentials.isExpired(now: nowDate) {
+                guard let refreshToken = credentials.refreshToken else { return [] }
+                let rotated = try await refresher.refresh(refreshToken: refreshToken)
+                credentials = ClaudeCredentials(
+                    accessToken: rotated.accessToken,
+                    refreshToken: rotated.refreshToken,
+                    expiresAtMillis: rotated.expiresAtMillis,
+                    subscriptionType: stored.subscriptionType
+                )
+                // Persist rotation so Claude Code and we stay in sync. Best-effort:
+                // a failed write must not block returning fresh usage.
+                try? ClaudeCredentialsReader.writeBack(credentials, home: home)
+            }
+            let lanes = try await fetchUsage(credentials: credentials)
+            await cache.store(lanes, at: nowDate)
+            return lanes
+        } catch {
+            // Rate-limited / transient: hold the last good value instead of
+            // letting the caller drop to the unreliable per-window statusline.
+            if let preserved = await cache.fresh(within: stalePreserveTTL, now: nowDate) { return preserved }
+            throw error
         }
-        return try await fetchUsage(credentials: credentials)
+    }
+
+    /// Cache + preserve path without disk access — used by tests and reusable by
+    /// callers that already hold credentials.
+    public func fetchUsageCached(credentials: ClaudeCredentials) async throws -> [UsageSnapshot] {
+        let nowDate = now()
+        if let recent = await cache.fresh(within: minRefetchInterval, now: nowDate) { return recent }
+        do {
+            let lanes = try await fetchUsage(credentials: credentials)
+            await cache.store(lanes, at: nowDate)
+            return lanes
+        } catch {
+            if let preserved = await cache.fresh(within: stalePreserveTTL, now: nowDate) { return preserved }
+            throw error
+        }
     }
 }
