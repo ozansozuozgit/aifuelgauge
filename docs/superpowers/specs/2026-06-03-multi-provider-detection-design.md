@@ -206,6 +206,22 @@ network failure preserve last-good (we already have a 24h reconciler — keep it
 **New/changed files:** `CursorUsageConnector.swift` (endpoint + richer parse +
 cache discipline), tests with `/api/usage-summary` fixtures.
 
+### Phase 5 spike outcome (2026-06-03) — NO-OP under local-creds-only
+
+Spike result: the vscdb `cursorAuth/accessToken` (a JWT) returns **401** against
+`https://cursor.com/api/usage-summary`; that endpoint requires the browser
+`WorkosCursorSessionToken`, which is out of scope (no browser-cookie extraction).
+vscdb exposes only `accessToken` + `refreshToken`. Our **current** Connect
+endpoint (`api2.cursor.sh/.../GetCurrentPeriodUsage`) still returns 200, and we
+read the token fresh from vscdb every refresh (so we inherit Cursor's own token
+refresh) and already preserve last-good for 24h via the reconciler.
+
+Therefore the richer data (included-vs-overage, team pooled, per-model) is
+**unreachable without browser cookies**, and the cache-discipline change is moot
+(we hold no token cache to invalidate). **Decision: ship no Cursor change.** Our
+Cursor detection is already optimal under the chosen constraints. Revisit only if
+browser-cookie extraction is ever added.
+
 ---
 
 ## Data model touchpoints
