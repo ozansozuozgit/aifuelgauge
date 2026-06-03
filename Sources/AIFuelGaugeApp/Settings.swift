@@ -226,6 +226,8 @@ struct ProvidersPane: View {
     @AppStorage(AppPreferences.monitorOpenCodeEnabledKey) private var monitorOpenCodeEnabled = true
     @AppStorage(AppPreferences.monitorOpenRouterEnabledKey) private var monitorOpenRouterEnabled = true
     @AppStorage(AppPreferences.monitorOpenAIEnabledKey) private var monitorOpenAIEnabled = true
+    @AppStorage(AppPreferences.monitorGeminiEnabledKey) private var monitorGeminiEnabled = false
+    @AppStorage(AppPreferences.monitorCopilotEnabledKey) private var monitorCopilotEnabled = false
     @AppStorage(AppPreferences.claudeCodePlanLabelKey) private var claudeCodePlanLabel = ""
     @AppStorage(AppPreferences.cursorPlanOverrideKey) private var cursorPlanOverride = ""
 
@@ -237,13 +239,17 @@ struct ProvidersPane: View {
                 divider
                 monitorRow("Cursor", icon: "cursorarrow.rays", helper: "Local account state plus live current-period usage.", isOn: $monitorCursorEnabled)
                 divider
-                monitorRow("Claude Code", icon: "sparkles", helper: "Local token estimates from ~/.claude/projects.", isOn: $monitorClaudeCodeEnabled)
+                monitorRow("Claude Code", icon: "sparkles", helper: "Exact 5h/weekly usage from Claude's own OAuth login, with local token estimates as fallback.", isOn: $monitorClaudeCodeEnabled)
                 divider
                 monitorRow("OpenCode", icon: "chevron.left.forwardslash.chevron.right", helper: "Local token estimates from OpenCode SQLite.", isOn: $monitorOpenCodeEnabled)
                 divider
                 monitorRow("OpenRouter", icon: "point.3.connected.trianglepath.dotted", helper: "Official key and credit endpoints when a key is saved.", isOn: $monitorOpenRouterEnabled)
                 divider
                 monitorRow("OpenAI", icon: "brain", helper: "Official organization costs and token usage when an admin key is saved.", isOn: $monitorOpenAIEnabled)
+                divider
+                monitorRow("Gemini", icon: "diamond", helper: "Experimental: Code Assist quota from ~/.gemini/oauth_creds.json. Off by default — not yet verified against a live account.", isOn: $monitorGeminiEnabled)
+                divider
+                monitorRow("Copilot", icon: "chevron.left.slash.chevron.right", helper: "Experimental: premium/chat quota reusing the local GitHub Copilot token. Off by default — not yet verified against a live account.", isOn: $monitorCopilotEnabled)
             }
             SettingsGroup(title: "Plan label overrides") {
                 SettingsRow(icon: "tag", title: "Codex",

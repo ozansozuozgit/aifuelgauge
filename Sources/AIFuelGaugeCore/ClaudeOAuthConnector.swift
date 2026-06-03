@@ -232,18 +232,8 @@ public enum ClaudeOAuthUsageParser {
         return raw.capitalized
     }
 
-    /// Tolerant ISO8601 parse. Anthropic returns microseconds + offset
-    /// (e.g. `2026-06-03T17:40:00.029958+00:00`), which Apple's formatter
-    /// rejects, so we fall back to stripping fractional seconds.
-    static func parseDate(_ string: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: string) { return date }
-        let stripped = string.replacingOccurrences(of: #"\.\d+"#, with: "", options: .regularExpression)
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: stripped)
-    }
+    /// Anthropic returns microseconds + offset; reuse the shared tolerant parser.
+    static func parseDate(_ string: String) -> Date? { ISO8601Tolerant.date(string) }
 }
 
 // MARK: - Connector

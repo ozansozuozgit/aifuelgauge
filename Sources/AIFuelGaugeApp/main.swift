@@ -303,6 +303,8 @@ enum AppPreferences {
     static let monitorOpenCodeEnabledKey = "monitorOpenCodeEnabled"
     static let monitorOpenRouterEnabledKey = "monitorOpenRouterEnabled"
     static let monitorOpenAIEnabledKey = "monitorOpenAIEnabled"
+    static let monitorGeminiEnabledKey = "monitorGeminiEnabled"
+    static let monitorCopilotEnabledKey = "monitorCopilotEnabled"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -330,7 +332,11 @@ enum AppPreferences {
             monitorCursorEnabledKey: true,
             monitorOpenCodeEnabledKey: true,
             monitorOpenRouterEnabledKey: true,
-            monitorOpenAIEnabledKey: true
+            monitorOpenAIEnabledKey: true,
+            // Off by default: built against documented shapes but not yet
+            // verified against a live account on the dev machine.
+            monitorGeminiEnabledKey: false,
+            monitorCopilotEnabledKey: false
         ])
     }
 
@@ -415,6 +421,8 @@ enum AppPreferences {
         if UserDefaults.standard.bool(forKey: monitorOpenCodeEnabledKey) { providers.insert(.openCode) }
         if UserDefaults.standard.bool(forKey: monitorOpenRouterEnabledKey) { providers.insert(.openRouter) }
         if UserDefaults.standard.bool(forKey: monitorOpenAIEnabledKey) { providers.insert(.openAI) }
+        if UserDefaults.standard.bool(forKey: monitorGeminiEnabledKey) { providers.insert(.gemini) }
+        if UserDefaults.standard.bool(forKey: monitorCopilotEnabledKey) { providers.insert(.copilot) }
         return providers
     }
 
@@ -810,6 +818,24 @@ final class DashboardController: ObservableObject {
                     snapshots.append(try await connector.fetchCurrentMonthCompletionsUsage(adminKey: openAIAdminKey))
                 } catch {
                     warnings.append("OpenAI usage failed")
+                }
+            }
+
+            if monitoredProviders.contains(.gemini) {
+                do {
+                    let geminiLanes = try await GeminiConnector().fetchUsageFromLocalCredentials()
+                    snapshots.append(contentsOf: geminiLanes)
+                } catch {
+                    warnings.append("Gemini usage unavailable")
+                }
+            }
+
+            if monitoredProviders.contains(.copilot) {
+                do {
+                    let copilotLanes = try await CopilotConnector().fetchUsageFromLocalToken()
+                    snapshots.append(contentsOf: copilotLanes)
+                } catch {
+                    warnings.append("Copilot usage unavailable")
                 }
             }
 

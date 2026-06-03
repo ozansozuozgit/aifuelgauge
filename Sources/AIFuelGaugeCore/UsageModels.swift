@@ -10,6 +10,7 @@ public enum Provider: String, Codable, Equatable, Hashable, CaseIterable, Sendab
     case anthropic
     case cursor
     case gemini
+    case copilot
 
     public var displayName: String {
         switch self {
@@ -22,6 +23,7 @@ public enum Provider: String, Codable, Equatable, Hashable, CaseIterable, Sendab
         case .anthropic: "Anthropic"
         case .cursor: "Cursor"
         case .gemini: "Gemini"
+        case .copilot: "Copilot"
         }
     }
 
@@ -36,6 +38,7 @@ public enum Provider: String, Codable, Equatable, Hashable, CaseIterable, Sendab
         case .anthropic: "ANT"
         case .cursor: "Cursor"
         case .gemini: "Gemini"
+        case .copilot: "Copilot"
         }
     }
 }
