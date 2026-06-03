@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import AIFuelGaugeCore
 
 /// Linear capsule meter. Striped variant for unknown / no-limit sources.
@@ -313,6 +314,7 @@ struct DashboardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
+            routerRow
             laneToolbar
             laneList
             WorkbenchSection(
@@ -348,6 +350,48 @@ struct DashboardView: View {
             Spacer()
             StatePill(state: headerState, label: stateLabel)
         }
+    }
+
+    /// Cross-provider "use this engine now" recommendation — the Fuel Router.
+    @ViewBuilder private var routerRow: some View {
+        if let rec = model.recommendation {
+            HStack(spacing: 9) {
+                Image(systemName: rec.isConstrained ? "exclamationmark.triangle.fill" : "bolt.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(FuelTheme.color(for: rec.state))
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 5) {
+                        Text(rec.isConstrained ? "HEADS UP" : "USE NOW")
+                            .font(.fuelEyebrow).foregroundStyle(FuelTheme.text3)
+                        Text(rec.title).font(.fuelText(12.5, weight: .semibold)).foregroundStyle(FuelTheme.text)
+                            .lineLimit(1)
+                    }
+                    Text(rec.detail).font(.fuelText(11)).foregroundStyle(FuelTheme.text3).lineLimit(1)
+                }
+                Spacer(minLength: 6)
+                if let command = rec.launchCommand {
+                    Button { copyToPasteboard(command) } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "doc.on.doc").font(.system(size: 10))
+                            Text(command).font(.fuelMono(11))
+                        }
+                        .foregroundStyle(FuelTheme.accent)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(FuelTheme.accentSoft, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Copy \"\(command)\" to clipboard")
+                }
+            }
+            .padding(.vertical, 8).padding(.horizontal, 10)
+            .background(FuelTheme.color(for: rec.state).opacity(0.10),
+                        in: RoundedRectangle(cornerRadius: FuelTheme.radiusMD, style: .continuous))
+        }
+    }
+
+    private func copyToPasteboard(_ string: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(string, forType: .string)
     }
 
     private var laneToolbar: some View {

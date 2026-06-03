@@ -747,6 +747,8 @@ public struct DashboardViewModel: Equatable, Sendable {
     public let primaryGauge: DashboardGauge?
     public let rows: [DashboardRow]
     public let state: UsageState
+    /// "Use this engine now" cross-provider recommendation (nil with <2 engines).
+    public let recommendation: FuelRecommendation?
 
     public init(
         summary: UsageSummary,
@@ -776,6 +778,7 @@ public struct DashboardViewModel: Equatable, Sendable {
         self.guidanceItems = Self.guidanceItems(for: visibleSummary, history: history, now: now)
         self.setupGuidance = Self.setupGuidance(for: visibleSummary, monitoredProviders: monitoredProviders)
         self.resetTimeline = Self.resetTimeline(for: visibleSummary, now: now)
+        self.recommendation = FuelRouter.recommend(snapshots: visibleSummary.snapshots, now: now)
         let featuredSnapshot = Self.featuredSnapshot(for: visibleSummary)
         self.primaryGauge = featuredSnapshot.flatMap { Self.gauge(for: $0, historySamples: historySamples, now: now) }
         let hiddenPrimaryID = featuredSnapshot.flatMap { Self.hidesPrimaryRow($0) ? $0.id : nil }
