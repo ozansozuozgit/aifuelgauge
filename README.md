@@ -13,8 +13,13 @@ coding tools. It answers the practical question:
 > Which AI lane can I use right now without running into a limit?
 
 It watches Codex, Cursor, Claude Code, OpenRouter, OpenAI, and local agent usage
-signals, then turns them into a compact menu-bar status and a fast popover built
-for scanning.
+signals (with experimental Gemini and Copilot support), then turns them into a
+compact menu-bar status and a fast popover built for scanning.
+
+Because it reads every engine's exact usage at once, it can do something no
+single-provider tool can: the **Fuel Router** recommends which coding engine to
+reach for right now — the one with the most headroom at its tightest limit — and
+tells you when they are all tight and which frees up soonest.
 
 <p align="center">
   <img
@@ -39,12 +44,15 @@ The app is designed around three ideas:
 
 ## What It Does
 
+- **Fuel Router**: a "use this engine now" recommendation across every coding
+  provider, with a one-click copy of the launch command.
 - Adaptive menu-bar label with the tightest useful lane, remaining capacity, and
   reset time.
-- Primary usage gauge for the current lane to watch.
-- Usable and all-lanes filters so exhausted or noisy rows do not dominate the
-  default view.
-- Next-reset strip for the quota windows that matter soonest.
+- Fuel-style meters that fill with what remains and color by urgency, so a full
+  green bar means a full tank and a short red bar means almost out.
+- Usable and all-lanes filters, plus a per-provider filter to focus a single
+  engine, so exhausted or noisy rows do not dominate the default view.
+- Header status that names the most constrained lane instead of crying wolf.
 - Most-room and tightest-lane guidance so you can choose the right tool for the
   next task.
 - Plan labels for Codex, Cursor, and Claude Code, with local overrides where a
@@ -63,17 +71,23 @@ The app is designed around three ideas:
 
 | Source | What it can show | Confidence |
 | --- | --- | --- |
-| Codex account | 5h and weekly quota windows, plan labels, model-specific caps | Exact when the local Codex account token is available |
+| Claude Code | 5h, weekly, and per-model (Opus/Sonnet) quota windows, plan tier | Exact from Claude's own local OAuth login — no setup; statusline capture and JSONL token aggregation as fallback |
+| Codex account | 5h and weekly quota windows, plan labels, Spark and model-specific caps | Exact when the local Codex account token is available |
 | Cursor account | Included usage, auto usage, API usage, spend rows, plan/status hints | Exact when local Cursor auth is available |
-| Claude Code | 5h and weekly quota windows via statusline capture; local token aggregation as fallback | Exact after statusline capture, estimated from JSONL fallback |
 | OpenRouter | Key usage and account credits | Exact with a saved API key |
 | OpenAI | Organization costs and completions usage | Exact with a saved Admin key |
 | OpenCode | Local SQLite token aggregation | Estimated |
+| Gemini *(experimental, off by default)* | Code Assist per-model quota from the Gemini CLI login | Exact when `~/.gemini/oauth_creds.json` is present |
+| Copilot *(experimental, off by default)* | Premium and chat request quota | Exact when a local GitHub Copilot token is present |
 
 Exact means the app is reading a provider/account endpoint or documented local
 account state. Estimated means the app is aggregating local usage metadata.
 Unknown means the source is detected but the app cannot safely turn it into a
 quota or usage row.
+
+Gemini and Copilot are built against documented shapes but are not yet verified
+against live accounts, so they ship off by default. Enable them under
+**Settings -> Providers** once you have those tools installed.
 
 ## Privacy Model
 
@@ -81,6 +95,11 @@ AI Fuel Gauge is local-first.
 
 - API keys are stored in macOS Keychain.
 - Cursor and Codex auth are read from local account state when available.
+- Claude Code exact usage is read from Claude's own OAuth credentials
+  (`~/.claude/.credentials.json` or the Keychain item Claude Code already
+  stores). When that token is expired, the app refreshes it and writes the
+  rotated token back atomically — the same thing Claude Code does — so your
+  login stays healthy. Codex tokens are refreshed and written back the same way.
 - Claude Code, Codex fallback, and OpenCode usage are aggregated from local
   metadata files.
 - Prompt text is not read for status summaries.
@@ -159,51 +178,29 @@ Most setup happens in the popover Settings screen.
 
 ### Claude Code exact usage
 
-Claude Code has two different local signals:
+Exact Claude usage now works with **no setup**. If you are signed into Claude
+Code, AI Fuel Gauge reads its OAuth credentials locally and fetches exact
+`5h`, `Weekly`, and per-model (`Opus`/`Sonnet`) usage directly from Anthropic's
+usage endpoint, including your plan tier. Nothing to install, no hook required.
 
-- Local JSONL usage files in `~/.claude/projects`, which provide token totals
-  but not official quota percentages. AI Fuel Gauge labels these rows as
-  estimated.
-- `claude -p`, SDK, queued, and Hermes-style headless runs usually land only in
-  those local JSONL files. AI Fuel Gauge labels them as
-  `print/headless tokens` when the logs identify that mode. They are useful for
-  understanding local token volume, but they are not official 5h or weekly quota
-  usage.
-- Claude Code statusline `rate_limits`, which can expose exact 5h and weekly
-  usage percentages and reset times for Pro/Max accounts after Claude Code
-  receives an assistant response.
+AI Fuel Gauge picks the best Claude signal available, in order:
 
-Use **Settings -> Enable Claude exact usage** to install:
+1. **OAuth usage (exact, zero setup)** — read from Claude's own
+   `~/.claude/.credentials.json` (or the Keychain item it stores). The token is
+   refreshed and written back atomically when expired, exactly as Claude Code
+   does, so your login keeps working.
+2. **Statusline capture (exact, optional)** — the legacy path below, kept as a
+   fallback.
+3. **Local JSONL token totals (estimated)** — token volume from
+   `~/.claude/projects`, including `claude -p` / SDK / headless runs labeled
+   `print/headless tokens`. Useful for volume, not official quota.
 
-```text
-~/.claude/aifuelgauge-statusline.py
-```
-
-The installer updates:
-
-```text
-~/.claude/settings.json
-```
-
-and writes captured quota data to:
-
-```text
-~/Library/Application Support/AI Fuel Gauge/claude-statusline.json
-```
-
-The statusline script stores only the documented quota fields, reset times,
-session id, model name, and update timestamp. It does not store prompt text.
-
-If Claude still shows only a token row after enabling exact usage, run or
-continue a **Claude Code** session and wait for one assistant response, then
-refresh AI Fuel Gauge. Opening Claude Desktop or the Claude account Usage page
-does not trigger Claude Code statusline data.
-
-When the script is installed but no statusline payload has arrived yet, the
-Claude row remains visible as `Claude Code · Max 5x` with local token totals and
-an explanation that exact capture is waiting for Claude Code. Once the first
-payload arrives, AI Fuel Gauge adds exact `5h` and `Weekly` Claude rows with
-meters and reset times.
+You usually do not need the statusline hook anymore. It remains available under
+**Settings -> Enable Claude exact usage** for setups where the OAuth path is not
+desired; it installs `~/.claude/aifuelgauge-statusline.py`, updates
+`~/.claude/settings.json`, and writes captured quota to
+`~/Library/Application Support/AI Fuel Gauge/claude-statusline.json` (documented
+quota fields, reset times, session id, model name, timestamp — no prompt text).
 
 ## Status Export
 
@@ -287,10 +284,13 @@ ad-hoc artifacts for testing, but public tags should ship notarized builds.
 
 ## Roadmap
 
+- Verify Gemini and Copilot against live accounts and graduate them from
+  experimental to on-by-default.
+- Burn attribution: correlate the Agent Workbench sessions with usage deltas to
+  show which project or session is eating your quota.
+- Optional Fuel Guard hook that warns inside the CLI before a run that would blow
+  a weekly cap.
 - Native WidgetKit companion that reads the local status export.
-- Cleaner first-run checklist for connecting Codex, Cursor, OpenRouter, and
-  OpenAI.
-- More provider-specific explanations for unusual quota windows.
 - Better history views for comparing burn rate across tools.
 - Optional update flow for Homebrew or GitHub release installs.
 
