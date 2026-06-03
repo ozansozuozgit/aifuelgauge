@@ -1,43 +1,6 @@
 import SwiftUI
 import AIFuelGaugeCore
 
-/// 259° arc gauge. `percent` in 0...1, colored by `state`.
-struct ArcGauge: View {
-    let percent: Double
-    let state: UsageState
-    var value: String
-    var caption: String = "USED"
-    var diameter: CGFloat = 132
-    var lineWidth: CGFloat = 12
-
-    private let sweep = 259.0
-    private var startAngle: Angle { .degrees(90 + (360 - sweep) / 2) }
-    private var trim: CGFloat { CGFloat(sweep / 360.0) }
-    private var clamped: Double { min(max(percent, 0), 1) }
-
-    var body: some View {
-        ZStack {
-            // Track
-            Circle()
-                .trim(from: 0, to: trim)
-                .stroke(FuelTheme.track, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .rotationEffect(startAngle)
-            // Value arc
-            Circle()
-                .trim(from: 0, to: trim * CGFloat(clamped))
-                .stroke(FuelTheme.color(for: state), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .rotationEffect(startAngle)
-            // Center label
-            VStack(spacing: 0) {
-                Text(value).font(.fuelMono(28, weight: .semibold)).foregroundStyle(FuelTheme.text)
-                Text(caption).font(.fuelEyebrow).foregroundStyle(FuelTheme.text3)
-            }
-        }
-        .frame(width: diameter, height: diameter)
-        .animation(.easeOut(duration: 0.4), value: clamped)
-    }
-}
-
 /// Linear capsule meter. Striped variant for unknown / no-limit sources.
 struct Meter: View {
     let percent: Double?   // nil => no-limit striped bar
@@ -137,40 +100,6 @@ struct StatePill: View {
     }
 }
 
-/// In-popover focus selector ("Auto ▾" or a pinned provider). Transient — does
-/// not change the menu bar. `rows` are the focusable lanes.
-struct FocusPill: View {
-    let rows: [DashboardRow]
-    @Binding var pinnedID: String?
-
-    var body: some View {
-        Menu {
-            Button("Auto") { pinnedID = nil }
-            Divider()
-            ForEach(rows) { row in
-                Button(row.title) { pinnedID = row.id }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: pinnedID == nil ? "bolt.fill" : "pin.fill").font(.system(size: 9))
-                Text(pinnedID == nil ? "Auto" : (rows.first { $0.id == pinnedID }?.title ?? "Auto"))
-                    .font(.fuelText(11.5, weight: .semibold))
-                Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
-            }
-            .foregroundStyle(FuelTheme.text)
-            .padding(.horizontal, 9).padding(.vertical, 5)
-            .background(FuelTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: FuelTheme.radiusSM, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: FuelTheme.radiusSM, style: .continuous).strokeBorder(FuelTheme.border))
-        }
-        .menuStyle(.borderlessButton).fixedSize()
-    }
-}
-
-private func heroPercentText(_ row: DashboardRow) -> String {
-    guard let p = row.meterPercent else { return "—" }
-    return "\(Int((p * 100).rounded()))%"
-}
-
 /// Trims noisy trailing segments (masked email, "account", "acct …", "now")
 /// from a lane's detail line so it stays concise in the popover.
 func conciseDetail(_ detail: String) -> String {
@@ -188,73 +117,9 @@ func conciseDetail(_ detail: String) -> String {
         .joined(separator: " · ")
 }
 
-struct HeroFeaturedCard: View {
-    let row: DashboardRow
-    let allRows: [DashboardRow]
-    let insight: String
-    let resetCaption: String?   // e.g. "Resets in 47m"
-    @Binding var pinnedID: String?
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            ArcGauge(percent: row.meterPercent ?? 0, state: row.state,
-                     value: heroPercentText(row), caption: "USED")
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("TIGHTEST LANE").font(.fuelEyebrow).foregroundStyle(FuelTheme.text3)
-                    Spacer()
-                    FocusPill(rows: allRows, pinnedID: $pinnedID)
-                }
-                Text(row.title).font(.fuelText(16, weight: .bold)).foregroundStyle(FuelTheme.text)
-                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                Text(conciseDetail(row.detail)).font(.fuelText(12)).foregroundStyle(FuelTheme.text2)
-                    .lineLimit(2)
-                if !insight.isEmpty {
-                    HStack(alignment: .top, spacing: 6) {
-                        Image(systemName: "bolt.fill").font(.system(size: 10)).foregroundStyle(FuelTheme.safe)
-                        Text(insight).font(.fuelText(12, weight: .semibold)).foregroundStyle(FuelTheme.text)
-                    }
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(FuelTheme.safe.opacity(0.12), in: RoundedRectangle(cornerRadius: FuelTheme.radiusMD, style: .continuous))
-                }
-                if let resetCaption {
-                    HStack(spacing: 5) {
-                        Image(systemName: "clock").font(.system(size: 10)).foregroundStyle(FuelTheme.text3)
-                        Text(resetCaption).font(.fuelText(11.5)).foregroundStyle(FuelTheme.text2)
-                    }
-                }
-            }
-        }
-        .fuelCard(radius: FuelTheme.radiusLG, padding: 16)
-    }
-}
-
-struct HeroTrioCard: View {
-    let rows: [DashboardRow]   // already top-3 ordered
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ForEach(rows) { row in
-                VStack(spacing: 6) {
-                    ArcGauge(percent: row.meterPercent ?? 0, state: row.state,
-                             value: heroPercentText(row), caption: "", diameter: 84, lineWidth: 8)
-                    Text(row.title).font(.fuelText(12.5, weight: .semibold)).foregroundStyle(FuelTheme.text)
-                    Text(row.detail).font(.fuelText(11)).foregroundStyle(FuelTheme.text3)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity)
-            }
-        }
-        .fuelCard(radius: FuelTheme.radiusLG, padding: 16)
-    }
-}
-
 struct LaneRow: View {
     let row: DashboardRow
-    let isPinned: Bool
     let showDetails: Bool
-    let onPin: () -> Void
     let onCopy: () -> Void
     let onOpen: () -> Void
     let onToggleDetails: () -> Void
@@ -271,7 +136,6 @@ struct LaneRow: View {
                 Spacer(minLength: 6)
                 Text(row.value).font(.fuelMono(12.5)).foregroundStyle(FuelTheme.text)
                     .lineLimit(1).fixedSize()
-                laneButton("pin.fill", active: isPinned, action: onPin)
                 laneButton("doc.on.doc", action: onCopy)
                 if row.dashboardURL != nil { laneButton("arrow.up.right.square", action: onOpen) }
                 laneButton(showDetails ? "chevron.up" : "chevron.down", action: onToggleDetails)
@@ -392,26 +256,33 @@ struct DashboardView: View {
 
     @State private var laneFilter: LaneFilter = .usable
     @State private var detailRowIDs: Set<String> = []
-    @State private var heroPinnedID: String?
-    @AppStorage(AppPreferences.heroLayoutKey) private var heroLayoutRaw = HeroLayout.featured.rawValue
+    @State private var customOrder: [String] = AppPreferences.laneOrder()
 
     private var model: DashboardViewModel { controller.model }
-    private var heroLayout: HeroLayout { HeroLayout(rawValue: heroLayoutRaw) ?? .featured }
+
+    /// All rows arranged by the user's saved drag order; rows not yet in the
+    /// saved order keep their model position and are appended.
+    private var orderedRows: [DashboardRow] {
+        guard !customOrder.isEmpty else { return model.rows }
+        let byID = Dictionary(model.rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let ordered = customOrder.compactMap { byID[$0] }
+        let seen = Set(ordered.map(\.id))
+        return ordered + model.rows.filter { !seen.contains($0.id) }
+    }
 
     private var visibleRows: [DashboardRow] {
         switch laneFilter {
         case .usable:
-            let usable = model.rows.filter(\.showsInUsableFilter)
-            return usable.isEmpty ? model.rows : usable
+            let usable = orderedRows.filter(\.showsInUsableFilter)
+            return usable.isEmpty ? orderedRows : usable
         case .all:
-            return model.rows
+            return orderedRows
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
-            heroSection
             laneToolbar
             laneList
             ResetContextStrip(items: resetItems)
@@ -450,32 +321,6 @@ struct DashboardView: View {
         }
     }
 
-    @ViewBuilder private var heroSection: some View {
-        if model.rows.isEmpty {
-            heroPlaceholder
-        } else if heroLayout == .trio {
-            HeroTrioCard(rows: HeroFocus.topLanes(model.rows, count: 3))
-        } else if let focus = HeroFocus.resolve(model.rows, pinnedID: heroPinnedID) {
-            HeroFeaturedCard(row: focus, allRows: model.rows, insight: model.insight,
-                             resetCaption: resetCaption(for: focus), pinnedID: $heroPinnedID)
-        } else {
-            heroPlaceholder
-        }
-    }
-
-    private func resetCaption(for row: DashboardRow) -> String? {
-        let reset = model.resetTimeline.first { $0.id == row.id }
-            ?? model.resetTimeline.first { $0.title == row.title }
-        return reset.map { "Resets in \($0.value)" }
-    }
-
-    private var heroPlaceholder: some View {
-        Text("Estimating usage…")
-            .font(.fuelText(12)).foregroundStyle(FuelTheme.text3)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .fuelCard(radius: FuelTheme.radiusLG, padding: 16)
-    }
-
     private var laneToolbar: some View {
         HStack(spacing: 8) {
             Text("LANES").font(.fuelEyebrow).foregroundStyle(FuelTheme.text3)
@@ -485,36 +330,61 @@ struct DashboardView: View {
             }.pickerStyle(.segmented).labelsHidden().fixedSize()
             Text("\(visibleRows.count)").font(.fuelMono(11)).foregroundStyle(FuelTheme.text3)
             Spacer()
-            Picker("", selection: $heroLayoutRaw) {
-                Image(systemName: "gauge.medium").tag(HeroLayout.featured.rawValue)
-                    .accessibilityLabel("Featured layout")
-                Image(systemName: "square.grid.3x1.below.line.grid.1x2").tag(HeroLayout.trio.rawValue)
-                    .accessibilityLabel("Top 3 layout")
-            }.pickerStyle(.segmented).labelsHidden().fixedSize()
+            Label("Drag to reorder", systemImage: "line.3.horizontal")
+                .labelStyle(.titleAndIcon)
+                .font(.fuelText(10.5)).foregroundStyle(FuelTheme.text3)
         }
     }
 
-    private var laneList: some View {
-        ScrollView {
-            VStack(spacing: 0) {
+    @ViewBuilder private var laneList: some View {
+        if model.rows.isEmpty {
+            Text("Estimating usage…")
+                .font(.fuelText(12)).foregroundStyle(FuelTheme.text3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fuelCard(radius: FuelTheme.radiusMD, padding: 16)
+        } else {
+            List {
                 ForEach(visibleRows) { row in
                     LaneRow(
                         row: row,
-                        isPinned: heroPinnedID == row.id,
                         showDetails: detailRowIDs.contains(row.id),
-                        onPin: { heroPinnedID = (heroPinnedID == row.id) ? nil : row.id },
                         onCopy: { actions.copyRow(row) },
                         onOpen: { actions.openRow(row) },
                         onToggleDetails: { toggleDetails(row.id) }
                     )
-                    if row.id != visibleRows.last?.id {
-                        Divider().background(FuelTheme.divider).padding(.leading, 12)
-                    }
+                    .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparatorTint(FuelTheme.divider)
                 }
+                .onMove(perform: moveRows)
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, 0)
+            .frame(height: laneListHeight)
+            .background(FuelTheme.surfaceSunken, in: RoundedRectangle(cornerRadius: FuelTheme.radiusMD, style: .continuous))
         }
-        .frame(maxHeight: 240)
-        .background(FuelTheme.surfaceSunken, in: RoundedRectangle(cornerRadius: FuelTheme.radiusMD, style: .continuous))
+    }
+
+    /// Adapts the list height to row count (so few lanes don't leave a big well)
+    /// while capping so the popover stays compact; the List scrolls past the cap.
+    private var laneListHeight: CGFloat {
+        let collapsed: CGFloat = 86
+        let expandedExtra: CGFloat = 96
+        let expandedCount = visibleRows.filter { detailRowIDs.contains($0.id) }.count
+        let raw = CGFloat(visibleRows.count) * collapsed + CGFloat(expandedCount) * expandedExtra
+        return min(max(raw, collapsed), 320)
+    }
+
+    /// Reorders the visible lanes and persists the new global order.
+    private func moveRows(from source: IndexSet, to destination: Int) {
+        var visible = visibleRows
+        visible.move(fromOffsets: source, toOffset: destination)
+        let visibleSet = Set(visibleRows.map(\.id))
+        let hiddenIDs = orderedRows.map(\.id).filter { !visibleSet.contains($0) }
+        let newOrder = visible.map(\.id) + hiddenIDs
+        customOrder = newOrder
+        AppPreferences.saveLaneOrder(newOrder)
     }
 
     private func toggleDetails(_ id: String) {

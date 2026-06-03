@@ -443,7 +443,6 @@ struct AlertsPane: View {
 struct MenuBarPane: View {
     @AppStorage(AppPreferences.menuBarDisplayModeKey) private var displayMode = MenuBarDisplayMode.detailed.rawValue
     @AppStorage(AppPreferences.menuBarProviderFocusKey) private var providerFocus = MenuBarProviderFocus.auto.rawValue
-    @AppStorage(AppPreferences.heroLayoutKey) private var heroLayout = HeroLayout.featured.rawValue
 
     var body: some View {
         SettingsPane(title: "Menu bar",
@@ -475,14 +474,6 @@ struct MenuBarPane: View {
                             Text(focusLabel(focus)).tag(focus.rawValue)
                         }
                     }.pickerStyle(.menu).labelsHidden().fixedSize()
-                }
-            }
-            SettingsGroup(title: "Popover hero") {
-                SettingsRow(icon: nil, title: "Default layout", helper: "Featured shows one big gauge; Top 3 shows three compact gauges.") {
-                    Picker("", selection: $heroLayout) {
-                        Text("Featured").tag(HeroLayout.featured.rawValue)
-                        Text("Top 3").tag(HeroLayout.trio.rawValue)
-                    }.pickerStyle(.segmented).labelsHidden().fixedSize()
                 }
             }
         }

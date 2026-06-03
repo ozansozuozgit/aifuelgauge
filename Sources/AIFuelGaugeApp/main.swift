@@ -395,6 +395,10 @@ enum AppPreferences {
         UserDefaults.standard.stringArray(forKey: laneOrderKey) ?? []
     }
 
+    static func saveLaneOrder(_ order: [String]) {
+        UserDefaults.standard.set(order, forKey: laneOrderKey)
+    }
+
     static func budgetPreferences() -> UsageBudgetPreferences {
         UsageBudgetPreferences(
             openAIMonthlyUSD: double(for: openAIMonthlyBudgetUSDKey),
