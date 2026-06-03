@@ -1,0 +1,41 @@
+{
+  "plan_type": "prolite",
+  "rate_limit": {
+    "allowed": true,
+    "limit_reached": false,
+    "primary_window": {
+      "used_percent": 20,
+      "limit_window_seconds": 18000,
+      "reset_after_seconds": 2329,
+      "reset_at": 1780509060
+    },
+    "secondary_window": {
+      "used_percent": 48,
+      "limit_window_seconds": 604800,
+      "reset_after_seconds": 339018,
+      "reset_at": 1780845749
+    }
+  },
+  "additional_rate_limits": [
+    {
+      "limit_name": "GPT-5.3-Codex-Spark",
+      "metered_feature": "codex_bengalfox",
+      "rate_limit": {
+        "allowed": true,
+        "limit_reached": false,
+        "primary_window": {
+          "used_percent": 0,
+          "limit_window_seconds": 18000,
+          "reset_after_seconds": 18000,
+          "reset_at": 1780524731
+        },
+        "secondary_window": {
+          "used_percent": 0,
+          "limit_window_seconds": 604800,
+          "reset_after_seconds": 604800,
+          "reset_at": 1781111531
+        }
+      }
+    }
+  ]
+}

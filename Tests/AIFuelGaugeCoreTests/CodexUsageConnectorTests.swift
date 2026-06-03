@@ -116,8 +116,49 @@ final class CodexUsageConnectorTests: XCTestCase {
 
         let snapshots = try CodexUsageResponseParser(now: { Date(timeIntervalSince1970: 100) }).parse(data: data)
 
-        XCTAssertEqual(snapshots.map(\.label), ["5h", "Spark model · 5h"])
+        XCTAssertEqual(snapshots.map(\.label), ["5h", "Spark · 5h"])
         XCTAssertEqual(snapshots.map(\.used), [.percent(14), .percent(64)])
+    }
+
+    func testWindowLabelDetectsKindBySeconds() {
+        XCTAssertEqual(CodexUsageResponseParser.windowLabel(seconds: 18000, fallback: "x"), "5h")
+        XCTAssertEqual(CodexUsageResponseParser.windowLabel(seconds: 604800, fallback: "x"), "Weekly")
+        XCTAssertEqual(CodexUsageResponseParser.windowLabel(seconds: 86400, fallback: "x"), "1d")
+        XCTAssertEqual(CodexUsageResponseParser.windowLabel(seconds: nil, fallback: "fallback"), "fallback")
+    }
+
+    func testAuthWriterPreservesOtherFieldsAndUpdatesTokens() throws {
+        let existing = """
+        {"auth_mode":"chatgpt","OPENAI_API_KEY":"sk-keep","tokens":{"access_token":"old","refresh_token":"oldref","account_id":"acct"},"last_refresh":"2026-05-30T00:00:00Z"}
+        """.data(using: .utf8)!
+        let merged = try CodexAuthWriter.merge(existing: existing, accessToken: "newacc", refreshToken: "newref", lastRefresh: Date(timeIntervalSince1970: 1_000_000))
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: merged) as? [String: Any])
+        XCTAssertEqual(object["OPENAI_API_KEY"] as? String, "sk-keep")
+        XCTAssertEqual(object["auth_mode"] as? String, "chatgpt")
+        let tokens = try XCTUnwrap(object["tokens"] as? [String: Any])
+        XCTAssertEqual(tokens["access_token"] as? String, "newacc")
+        XCTAssertEqual(tokens["refresh_token"] as? String, "newref")
+        XCTAssertEqual(tokens["account_id"] as? String, "acct")
+        XCTAssertNotEqual(object["last_refresh"] as? String, "2026-05-30T00:00:00Z")
+    }
+
+    func testAuthWriterKeepsExistingRefreshTokenWhenNotRotated() throws {
+        let existing = #"{"tokens":{"access_token":"old","refresh_token":"keepref"}}"#.data(using: .utf8)!
+        let merged = try CodexAuthWriter.merge(existing: existing, accessToken: "newacc", refreshToken: nil, lastRefresh: Date())
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: merged) as? [String: Any])
+        let tokens = try XCTUnwrap(object["tokens"] as? [String: Any])
+        XCTAssertEqual(tokens["refresh_token"] as? String, "keepref")
+        XCTAssertEqual(tokens["access_token"] as? String, "newacc")
+    }
+
+    func testParsesRealCodexFixture() throws {
+        let url = Bundle.module.url(forResource: "codex-usage", withExtension: "json", subdirectory: "Fixtures")
+        let data = try Data(contentsOf: try XCTUnwrap(url))
+        let snapshots = try CodexUsageResponseParser(now: { Date(timeIntervalSince1970: 100) }).parse(data: data)
+        XCTAssertEqual(snapshots.map(\.label), ["5h", "Weekly"])
+        XCTAssertEqual(snapshots.first?.account?.plan, "Pro")
+        // Spark present but 0% used on both windows → filtered out by shouldShowAdditional.
+        XCTAssertFalse(snapshots.contains { $0.label.contains("Spark") })
     }
 
     func testParserRejectsResponsesWithoutComparableWindows() throws {

@@ -47,13 +47,32 @@ public struct CodexUsageConnector: Sendable {
             // Refresh once and retry before falling back to local session logs.
         }
 
-        let refreshedToken = try await refreshAccessToken(refreshToken: auth.refreshToken)
-        let refreshedData = try await fetchUsageData(accessToken: refreshedToken, accountID: auth.accountID)
+        let refreshed = try await refreshAccessToken(refreshToken: auth.refreshToken)
+        // Persist the rotated token back to auth.json (preserving all other
+        // fields) so we and the Codex CLI stay in sync — OpenAI rotates refresh
+        // tokens, so discarding the new one would break the next CLI refresh.
+        persistRefreshedTokens(accessToken: refreshed.accessToken, refreshToken: refreshed.refreshToken)
+        let refreshedData = try await fetchUsageData(accessToken: refreshed.accessToken, accountID: auth.accountID)
         return try CodexUsageResponseParser(now: now).parse(
             data: refreshedData,
             accountID: auth.accountID,
             identityHint: auth.identityHint
         )
+    }
+
+    private func persistRefreshedTokens(accessToken: String, refreshToken: String?) {
+        guard let existing = try? Data(contentsOf: authURL),
+              let merged = try? CodexAuthWriter.merge(
+                existing: existing,
+                accessToken: accessToken,
+                refreshToken: refreshToken,
+                lastRefresh: now()
+              ) else { return }
+        let tmp = authURL.deletingLastPathComponent()
+            .appendingPathComponent("auth.json.tmp-\(UUID().uuidString)")
+        guard (try? merged.write(to: tmp, options: .atomic)) != nil else { return }
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tmp.path)
+        _ = try? FileManager.default.replaceItemAt(authURL, withItemAt: tmp)
     }
 
     private func readAuth() throws -> CodexAuth {
@@ -97,7 +116,7 @@ public struct CodexUsageConnector: Sendable {
         return data
     }
 
-    private func refreshAccessToken(refreshToken: String) async throws -> String {
+    private func refreshAccessToken(refreshToken: String) async throws -> (accessToken: String, refreshToken: String?) {
         var request = URLRequest(url: tokenURL)
         request.httpMethod = "POST"
         request.timeoutInterval = 10
@@ -117,7 +136,7 @@ public struct CodexUsageConnector: Sendable {
             throw CodexUsageConnectorError.refreshFailed
         }
         let token = try JSONDecoder().decode(CodexRefreshResponse.self, from: data)
-        return token.access_token
+        return (token.access_token, token.refresh_token)
     }
 
     private static func percentEncode(_ value: String) -> String {
@@ -169,18 +188,20 @@ public struct CodexUsageResponseParser: Sendable {
         var snapshots: [UsageSnapshot] = []
 
         if let primary = response.rate_limit?.primary_window {
-            snapshots.append(snapshot(for: primary, label: "5h", account: account, generatedAt: generatedAt))
+            snapshots.append(snapshot(for: primary, label: Self.windowLabel(seconds: primary.limit_window_seconds, fallback: "5h"), account: account, generatedAt: generatedAt))
         }
         if let secondary = response.rate_limit?.secondary_window {
-            snapshots.append(snapshot(for: secondary, label: "Weekly", account: account, generatedAt: generatedAt))
+            snapshots.append(snapshot(for: secondary, label: Self.windowLabel(seconds: secondary.limit_window_seconds, fallback: "Weekly"), account: account, generatedAt: generatedAt))
         }
         for item in response.additional_rate_limits ?? [] {
             guard let prefix = Self.additionalLimitDisplayName(item.limit_name) else { continue }
             if let primary = item.rate_limit?.primary_window, Self.shouldShowAdditional(window: primary, limit: item.rate_limit) {
-                snapshots.append(snapshot(for: primary, label: [prefix, "5h"].compactMap { $0 }.joined(separator: " · "), account: account, generatedAt: generatedAt))
+                let window = Self.windowLabel(seconds: primary.limit_window_seconds, fallback: "5h")
+                snapshots.append(snapshot(for: primary, label: "\(prefix) · \(window)", account: account, generatedAt: generatedAt))
             }
             if let secondary = item.rate_limit?.secondary_window, Self.shouldShowAdditional(window: secondary, limit: item.rate_limit) {
-                snapshots.append(snapshot(for: secondary, label: [prefix, "Weekly"].compactMap { $0 }.joined(separator: " · "), account: account, generatedAt: generatedAt))
+                let window = Self.windowLabel(seconds: secondary.limit_window_seconds, fallback: "Weekly")
+                snapshots.append(snapshot(for: secondary, label: "\(prefix) · \(window)", account: account, generatedAt: generatedAt))
             }
         }
 
@@ -196,11 +217,23 @@ public struct CodexUsageResponseParser: Sendable {
         guard let rawName else { return nil }
         let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+        if trimmed.localizedCaseInsensitiveContains("spark") { return "Spark" }
         if trimmed.localizedCaseInsensitiveContains("codex"),
            let last = trimmed.split(separator: "-").last {
             return "\(last) model"
         }
         return trimmed
+    }
+
+    /// Labels a window by its length so the name reflects the real reset cadence
+    /// rather than its position in the response. Falls back to the positional
+    /// name when the API omits `limit_window_seconds`.
+    static func windowLabel(seconds: Int?, fallback: String) -> String {
+        guard let seconds, seconds > 0 else { return fallback }
+        if seconds <= 6 * 3600 { return "5h" }
+        if seconds >= 6 * 24 * 3600 { return "Weekly" }
+        if seconds % (24 * 3600) == 0 { return "\(seconds / (24 * 3600))d" }
+        return "\(max(1, seconds / 3600))h"
     }
 
     private func snapshot(for window: CodexUsageWindow, label: String, account: UsageAccount, generatedAt: Date) -> UsageSnapshot {
@@ -295,6 +328,26 @@ private struct CodexAuthTokens: Decodable {
 
 private struct CodexRefreshResponse: Decodable {
     let access_token: String
+    let refresh_token: String?
+}
+
+/// Merges refreshed Codex tokens into the existing `auth.json` contents,
+/// preserving every other field (auth_mode, OPENAI_API_KEY, …) so a write-back
+/// never drops data the Codex CLI relies on.
+public enum CodexAuthWriter {
+    public static func merge(existing: Data, accessToken: String, refreshToken: String?, lastRefresh: Date) throws -> Data {
+        guard var object = try JSONSerialization.jsonObject(with: existing) as? [String: Any] else {
+            throw CodexUsageConnectorError.invalidAuthFile
+        }
+        var tokens = (object["tokens"] as? [String: Any]) ?? [:]
+        tokens["access_token"] = accessToken
+        if let refreshToken { tokens["refresh_token"] = refreshToken }
+        object["tokens"] = tokens
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        object["last_refresh"] = iso.string(from: lastRefresh)
+        return try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+    }
 }
 
 private struct CodexUsageResponse: Decodable {
